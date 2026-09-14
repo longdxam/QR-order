@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    url: ${QROS_DB_URL}
+    username: ${QROS_DB_USERNAME}
+    password: ${QROS_DB_PASSWORD}
+  data:
+    redis:
+      url: ${QROS_REDIS_URL}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  server:
+    port: ${QROS_MANAGEMENT_PORT:8081}
+
+# Khoá công khai bắt buộc: thiếu biến môi trường thì tiến trình từ chối khởi động, thay vì chạy
+# với vùng bảo mật rỗng. Khi xoay khoá (NFR-SEC-07) thì cấp cả danh sách qua biến môi trường có
+# chỉ số — QROS_SECURITY_GUEST_KEYS_0_KID, _0_X, _1_KID, _1_X — để giữ song song khoá liền trước.
+qros:
+  security:
+    guest:
+      keys:
+        - kid: ${QROS_JWT_GUEST_KID}
+          x: ${QROS_JWT_GUEST_X}
+      # Nửa riêng của cùng cặp khoá guest ở trên — phát token phiên bàn sau khi xác minh QR
+      # (BL-M1-01). Không có mặc định: thiếu biến môi trường thì tiến trình từ chối khởi động.
+      signing-key:
+        kid: ${QROS_JWT_GUEST_KID}
+        d: ${QROS_JWT_GUEST_D}
+    staff:
+      keys:
+        - kid: ${QROS_JWT_STAFF_KID}
+          x: ${QROS_JWT_STAFF_X}
+      # Nửa riêng của cùng cặp khoá staff ở trên — đăng nhập ký bằng khoá này (BL-M0-08).
+      # Không có mặc định: thiếu biến môi trường thì tiến trình từ chối khởi động.
+      signing-key:
+        kid: ${QROS_JWT_STAFF_KID}
+        d: ${QROS_JWT_STAFF_D}
+    admin:
+      keys:
+        - kid: ${QROS_JWT_ADMIN_KID}
+          x: ${QROS_JWT_ADMIN_X}
+

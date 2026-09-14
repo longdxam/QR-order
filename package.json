@@ -1,0 +1,17 @@
+{
+  "name": "qros",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.17.0",
+  "scripts": {
+    "contract:lint": "spectral lint docs/api/openapi.yaml docs/api/asyncapi.yaml --ruleset .spectral.yaml --fail-severity=warn",
+    "contract:generate:web": "openapi-typescript docs/api/openapi.yaml -o web-guest/src/types/api.d.ts && openapi-typescript docs/api/openapi.yaml -o web-staff/src/types/api.d.ts"
+  },
+  "devDependencies": {
+    "@stoplight/spectral-cli": "6.16.3",
+    "openapi-typescript": "7.13.0"
+  }
+}

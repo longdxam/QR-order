@@ -1,0 +1,38 @@
+.gradle/
+.tmp/
+**/build/
+
+# IDE và hệ điều hành
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+Thumbs.db
+
+# Cấu hình cục bộ và bí mật
+.env
+.env.*
+!.env.example
+*.local
+
+# JavaScript / Next.js
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Log và báo cáo sinh tự động
+*.log
+test-results/
+playwright-report/
+blob-report/

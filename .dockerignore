@@ -1,0 +1,24 @@
+# Ngữ cảnh build ảnh chỉ cần đủ để chạy ./gradlew :backend:bootJar — mọi thứ khác chỉ làm chậm
+# build và phình cache lớp không cần thiết.
+.git/
+.gradle/
+.tmp/
+**/build/
+.idea/
+.vscode/
+node_modules/
+web-guest/
+web-staff/
+packages/
+ml/
+e2e/
+load/
+# openApiGenerate cần docs/api/openapi.yaml lúc build — chỉ loại phần không cần cho build backend.
+docs/architecture/
+docs/PRD.md
+docs/prd.html
+docs/backlog.md
+docs/runbooks/
+*.md
+.env
+.env.*

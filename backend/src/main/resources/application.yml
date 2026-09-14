@@ -1,0 +1,74 @@
+spring:
+  application:
+    name: qros-backend
+  jackson:
+    deserialization:
+      # ⚠ ADR-06/bất biến số 1: openapi.yaml đặt additionalProperties: false cho các request nhạy
+      # cảm (CreateOrderRequest, StartSessionRequest...) nhưng đó chỉ là mô tả hợp đồng — Jackson
+      # mặc định ÂM THẦM BỎ QUA trường lạ thay vì từ chối. Không bật cờ này thì client vẫn gửi được
+      # "unitPrice" kèm theo mà không bị 400, dữ liệu đó chỉ đơn giản không được đọc tới — im lặng,
+      # không phải từ chối. Bật toàn cục vì additionalProperties:false xuất hiện xuyên suốt hợp đồng.
+      fail-on-unknown-properties: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: ${QROS_SERVER_PORT:8080}
+  shutdown: graceful
+  error:
+    include-exception: false
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+management:
+  server:
+    port: ${QROS_MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  info:
+    env:
+      enabled: false
+  # NFR-OBS-01: sinh traceId thật bằng OpenTelemetry (BL-M0-11) — MDC/traceId trong lỗi vẫn hoạt
+  # động dù không xuất đi đâu. Tắt xuất OTLP mặc định vì repo chưa có collector nào (Jaeger/Tempo/
+  # Grafana chưa được cấp hạ tầng); môi trường có collector thật tự bật bằng biến môi trường.
+  tracing:
+    export:
+      otlp:
+        enabled: ${QROS_OTLP_TRACING_ENABLED:false}
+  metrics:
+    export:
+      otlp:
+        enabled: ${QROS_OTLP_METRICS_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${QROS_OTLP_METRICS_ENABLED:false}
+
+# Ba vùng bảo mật, ba bộ khoá/issuer/audience độc lập — NFR-SEC-02…08, TM-AUTH-02.
+# Khoá công khai nạp theo môi trường; không có khoá nghĩa là mọi token bị từ chối (đóng mặc định).
+qros:
+  security:
+    guest:
+      issuer: ${QROS_JWT_ISSUER:https://qros.example.com}
+      audience: qros-guest
+      scope: table_session
+    staff:
+      issuer: ${QROS_JWT_ISSUER:https://qros.example.com}
+      audience: qros-staff
+      scope: staff
+    admin:
+      issuer: ${QROS_JWT_ISSUER:https://qros.example.com}
+      audience: qros-admin
+      scope: admin

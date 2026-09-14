@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:${QROS_POSTGRES_PORT:5433}/qros
+    username: ${QROS_DB_USERNAME:qros}
+    password: ${QROS_POSTGRES_PASSWORD:qros_dev}
+  data:
+    redis:
+      host: localhost
+      port: ${QROS_REDIS_PORT:6379}
+      password: ${QROS_REDIS_PASSWORD:qros_dev}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  server:
+    address: 127.0.0.1
+
+# Khoá cố định chỉ dùng dev, không phải bí mật thật — không dùng lại ở prod (BL-M0-08).
+qros:
+  security:
+    guest:
+      keys:
+        - kid: guest-dev-2026-09
+          x: FH6IZEBKHCIUP_J9iXgwMBYymFXk7H4L1hpxapAPA7c
+      # Nửa riêng cùng cặp khoá guest ở trên — phát token phiên bàn sau khi xác minh QR (BL-M1-01).
+      signing-key:
+        kid: guest-dev-2026-09
+        d: UrHlwyPlbilxHGPQDM_EAA4VxqI62DApkaCJcV8nC08
+    staff:
+      keys:
+        - kid: staff-dev-2026-09
+          x: BytKEBMtmYGqYX4-JP0q7piJPaFIy2V2uA3wno86sMw
+      signing-key:
+        kid: staff-dev-2026-09
+        d: SpJ-AYHIMugn3KLnQMvZCmdtr1rfYdmUKapsBH3u234

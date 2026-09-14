@@ -1,0 +1,579 @@
+asyncapi: 3.0.0
+
+info:
+  title: QROS — Realtime Event Contract
+  version: 1.0.0
+  contact:
+    name: QROS Engineering
+    url: https://qros.example.com
+    email: engineering@qros.example.com
+  license:
+    name: Proprietary
+  tags:
+    - name: realtime
+      description: Sự kiện WebSocket/STOMP giữa backend và các ứng dụng web QROS.
+  description: |
+    Hợp đồng sự kiện thời gian thực giữa máy chủ Spring Boot và ba loại client:
+    web khách, màn hình KDS, và cổng quản trị. Vận chuyển bằng **WebSocket + STOMP**,
+    có SSE dự phòng cho môi trường chặn WebSocket.
+
+    Tài liệu này viết từ **góc nhìn của máy chủ QROS**: `action: send` nghĩa là máy chủ
+    phát ra cho client; `action: receive` nghĩa là máy chủ nhận từ client.
+
+    ## Ba quy tắc vận hành
+
+    1. **Mọi sự kiện đều mang `seq` tăng đơn điệu theo từng kênh.** Client lưu `seq`
+       cuối cùng đã xử lý. Sau khi kết nối lại, client gửi `lastSeq` để nhận bù các sự kiện
+       đã bỏ lỡ — đây là điều kiện để `FR-BAR-06` (KDS ngoại tuyến) và `NFR-AVL-03`
+       (triển khai không gián đoạn) hoạt động thật.
+    2. **Sự kiện là thông báo, không phải nguồn sự thật.** Client nhận sự kiện rồi
+       hiển thị ngay để đạt độ trễ ở `NFR-PERF-03`, nhưng mọi thao tác ghi vẫn đi qua REST
+       và chịu kiểm tra máy trạng thái cùng khoá lạc quan.
+    3. **Kênh của khách được cách ly theo phiên.** Một phiên bàn không bao giờ nhận được
+       sự kiện của bàn khác. Máy chủ kiểm tra quyền đăng ký kênh tại thời điểm `SUBSCRIBE`,
+       không chỉ tại thời điểm kết nối.
+
+defaultContentType: application/json
+
+servers:
+  production:
+    host: api.qros.example.com
+    protocol: wss
+    pathname: /ws
+    description: |
+      Bắt tay bằng token phiên. Web khách dùng JWS phiên bàn; nhân viên dùng cookie phiên.
+      Kết nối lại theo lùi cấp số nhân, có nhiễu ngẫu nhiên, tối đa 30 giây.
+    security:
+      - $ref: '#/components/securitySchemes/sessionToken'
+  local:
+    host: localhost:8080
+    protocol: ws
+    pathname: /ws
+
+channels:
+
+  kdsStream:
+    address: /topic/kds/{storeId}
+    title: Hàng đợi pha chế
+    description: |
+      Chỉ vai trò có quyền `order:read:store` được đăng ký. Trạng thái ban đầu lấy qua
+      `GET /api/v1/staff/kds/queue`; kênh này chỉ mang phần thay đổi sau đó.
+    parameters:
+      storeId:
+        description: Chi nhánh mà nhân viên đang trực.
+    messages:
+      orderPlaced:
+        $ref: '#/components/messages/OrderPlaced'
+      orderLineStatusChanged:
+        $ref: '#/components/messages/OrderLineStatusChanged'
+      orderCancelled:
+        $ref: '#/components/messages/OrderCancelled'
+      ingredientSoldOut:
+        $ref: '#/components/messages/IngredientSoldOut'
+      staffCalled:
+        $ref: '#/components/messages/StaffCalled'
+
+  guestStream:
+    address: /user/queue/session/{sessionId}
+    title: Kênh riêng của một phiên bàn
+    description: |
+      Cách ly theo phiên. Không bao giờ mang dữ liệu cá nhân của người khác —
+      các thiết bị trong phiên chỉ thấy biệt danh tự đặt.
+    parameters:
+      sessionId:
+        description: Phiên bàn hiện tại.
+    messages:
+      orderStatusChanged:
+        $ref: '#/components/messages/OrderStatusChanged'
+      itemUnavailable:
+        $ref: '#/components/messages/ItemUnavailable'
+      groupCartUpdated:
+        $ref: '#/components/messages/GroupCartUpdated'
+      participantJoined:
+        $ref: '#/components/messages/ParticipantJoined'
+      paymentStatusChanged:
+        $ref: '#/components/messages/PaymentStatusChanged'
+
+  floorStream:
+    address: /topic/floor/{storeId}
+    title: Sơ đồ bàn và cảnh báo vận hành
+    parameters:
+      storeId: {}
+    messages:
+      tableStateChanged:
+        $ref: '#/components/messages/TableStateChanged'
+      operationalAlert:
+        $ref: '#/components/messages/OperationalAlert'
+
+  groupCartCommands:
+    address: /app/session/{sessionId}/cart
+    title: Lệnh giỏ hàng nhóm
+    description: |
+      Đường duy nhất mà client được phép **gửi lên** qua WebSocket, phục vụ `FR-CUS-07`.
+      Giỏ hàng nhóm là trạng thái tạm, chưa phải đơn hàng — nên chấp nhận đồng bộ nhẹ.
+      Việc chốt đơn vẫn đi qua `POST /api/v1/guest/orders` với đầy đủ kiểm tra và định giá
+      phía máy chủ.
+    parameters:
+      sessionId: {}
+    messages:
+      cartCommand:
+        $ref: '#/components/messages/CartCommand'
+
+  resumeRequest:
+    address: /app/resume
+    title: Yêu cầu phát lại sau khi kết nối lại
+    description: |
+      Client gửi `lastSeq` của từng kênh nó đang theo dõi. Máy chủ phát bù các sự kiện
+      còn trong bộ đệm (giữ 15 phút). Nếu `lastSeq` đã quá cũ, máy chủ trả
+      `resyncRequired` để client tải lại toàn bộ trạng thái qua REST.
+    messages:
+      resume:
+        $ref: '#/components/messages/ResumeRequest'
+
+operations:
+
+  publishKdsEvents:
+    action: send
+    channel:
+      $ref: '#/channels/kdsStream'
+    summary: Máy chủ đẩy thay đổi hàng đợi tới KDS
+    description: 'Độ trễ đầu-cuối p95 ≤ 800 ms — `NFR-PERF-03`.'
+    messages:
+      - $ref: '#/channels/kdsStream/messages/orderPlaced'
+      - $ref: '#/channels/kdsStream/messages/orderLineStatusChanged'
+      - $ref: '#/channels/kdsStream/messages/orderCancelled'
+      - $ref: '#/channels/kdsStream/messages/ingredientSoldOut'
+      - $ref: '#/channels/kdsStream/messages/staffCalled'
+
+  publishGuestEvents:
+    action: send
+    channel:
+      $ref: '#/channels/guestStream'
+    summary: Máy chủ đẩy cập nhật tới các thiết bị trong phiên
+    description: Mỗi phiên chỉ nhận sự kiện thuộc đúng bàn và các thiết bị đã tham gia phiên đó.
+    messages:
+      - $ref: '#/channels/guestStream/messages/orderStatusChanged'
+      - $ref: '#/channels/guestStream/messages/itemUnavailable'
+      - $ref: '#/channels/guestStream/messages/groupCartUpdated'
+      - $ref: '#/channels/guestStream/messages/participantJoined'
+      - $ref: '#/channels/guestStream/messages/paymentStatusChanged'
+
+  publishFloorEvents:
+    action: send
+    channel:
+      $ref: '#/channels/floorStream'
+    summary: Máy chủ đẩy trạng thái bàn và cảnh báo tới thu ngân
+    description: Đồng bộ sơ đồ bàn và cảnh báo vận hành trong phạm vi một chi nhánh.
+
+  receiveCartCommands:
+    action: receive
+    channel:
+      $ref: '#/channels/groupCartCommands'
+    summary: Máy chủ nhận thao tác giỏ hàng nhóm từ client
+    description: Chỉ cập nhật giỏ tạm; việc tạo đơn và định giá vẫn đi qua REST.
+
+  receiveResume:
+    action: receive
+    channel:
+      $ref: '#/channels/resumeRequest'
+    summary: Máy chủ nhận yêu cầu phát lại sau khi client kết nối lại
+    description: Dùng `lastSeq` để phát bù hoặc yêu cầu client đồng bộ lại toàn bộ trạng thái.
+
+components:
+
+  securitySchemes:
+    sessionToken:
+      type: httpApiKey
+      name: Authorization
+      in: header
+      description: |
+        JWS phiên bàn cho khách, hoặc cookie phiên cho nhân viên. Kiểm tra quyền diễn ra
+        cả ở lúc `CONNECT` **và** lúc `SUBSCRIBE` từng kênh.
+
+  messages:
+
+    OrderPlaced:
+      name: OrderPlaced
+      title: Đơn mới vào hàng đợi
+      summary: 'KDS phát âm báo và nháy thẻ — `FR-BAR-02`.'
+      payload:
+        $ref: '#/components/schemas/OrderPlacedPayload'
+
+    OrderLineStatusChanged:
+      name: OrderLineStatusChanged
+      title: Một món đổi trạng thái
+      description: |
+        Phát cho **cả** kênh KDS và kênh phiên khách. Mang `version` mới để client nào
+        đang giữ bản cũ biết mình đã lạc hậu — `EC-06`.
+      payload:
+        $ref: '#/components/schemas/OrderLineStatusChangedPayload'
+
+    OrderCancelled:
+      name: OrderCancelled
+      title: Đơn bị huỷ
+      description: '`CANCELLED` luôn thắng mọi trạng thái tiến khi đồng bộ — `EC-06`.'
+      payload:
+        $ref: '#/components/schemas/OrderCancelledPayload'
+
+    IngredientSoldOut:
+      name: IngredientSoldOut
+      title: Hết nguyên liệu
+      description: |
+        Kèm danh sách món bị ảnh hưởng và các đơn đang chờ có chứa món đó, để KDS
+        cảnh báo ngay mà không phải gọi thêm REST — `EC-04`.
+      payload:
+        $ref: '#/components/schemas/IngredientSoldOutPayload'
+
+    StaffCalled:
+      name: StaffCalled
+      title: Khách gọi nhân viên
+      payload:
+        $ref: '#/components/schemas/StaffCalledPayload'
+
+    OrderStatusChanged:
+      name: OrderStatusChanged
+      title: Trạng thái đơn đổi (phía khách)
+      payload:
+        $ref: '#/components/schemas/OrderStatusChangedPayload'
+
+    ItemUnavailable:
+      name: ItemUnavailable
+      title: Món trong đơn đang chờ đã hết
+      description: |
+        Đây là sự kiện của `EC-04`. Client hiển thị ba lựa chọn: đổi món thay thế,
+        bỏ món và hoàn phần tiền, hoặc huỷ toàn bộ đơn. Không phản hồi trong 3 phút
+        thì chuyển sang nhân viên xử lý tại bàn — hệ thống không tự quyết thay khách.
+      payload:
+        $ref: '#/components/schemas/ItemUnavailablePayload'
+
+    GroupCartUpdated:
+      name: GroupCartUpdated
+      title: Giỏ hàng nhóm thay đổi
+      summary: 'Đồng bộ trong ≤ 1 giây giữa các thiết bị cùng bàn — `FR-CUS-07`.'
+      payload:
+        $ref: '#/components/schemas/GroupCartUpdatedPayload'
+
+    ParticipantJoined:
+      name: ParticipantJoined
+      title: Có thiết bị mới tham gia bàn
+      description: 'Mọi thiết bị trong phiên được thông báo — minh bạch theo `EC-02`.'
+      payload:
+        $ref: '#/components/schemas/ParticipantJoinedPayload'
+
+    PaymentStatusChanged:
+      name: PaymentStatusChanged
+      title: Trạng thái thanh toán đổi
+      description: |
+        Phát ra sau khi webhook đã được xác minh chữ ký, hoặc sau khi tác vụ đối soát
+        `FR-PAY-06` xác định được kết quả. Đây là cách khách thoát khỏi màn hình
+        "Đang xác nhận thanh toán…" mà không cần dò liên tục — `EC-01`.
+      payload:
+        $ref: '#/components/schemas/PaymentStatusChangedPayload'
+
+    TableStateChanged:
+      name: TableStateChanged
+      title: Trạng thái bàn đổi
+      payload:
+        $ref: '#/components/schemas/TableStateChangedPayload'
+
+    OperationalAlert:
+      name: OperationalAlert
+      title: Cảnh báo vận hành
+      description: |
+        Gồm cả cảnh báo bảo mật và nghiệp vụ: thanh toán trùng (`EC-08`), bàn quá hạn
+        còn dư nợ (`EC-07`), đơn vượt SLA (`FR-BAR-04`), hệ thống đang suy giảm AI (`EC-05`),
+        và ngân sách LLM chạm ngưỡng (`FR-AI-13`).
+      payload:
+        $ref: '#/components/schemas/OperationalAlertPayload'
+
+    CartCommand:
+      name: CartCommand
+      title: Thao tác giỏ hàng nhóm
+      payload:
+        $ref: '#/components/schemas/CartCommandPayload'
+
+    ResumeRequest:
+      name: ResumeRequest
+      title: Yêu cầu phát lại
+      payload:
+        $ref: '#/components/schemas/ResumeRequestPayload'
+
+  schemas:
+
+    EventEnvelope:
+      type: object
+      description: |
+        Phong bì chung của mọi sự kiện máy chủ phát ra. Client **phải** lưu `seq`
+        để phục hồi sau khi mất kết nối.
+      required: [eventId, type, seq, occurredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Dùng để khử trùng lặp khi phát lại.
+        type:
+          type: string
+          examples: [OrderPlaced, OrderLineStatusChanged]
+        seq:
+          type: integer
+          format: int64
+          description: Tăng đơn điệu trong phạm vi một kênh.
+        occurredAt:
+          type: string
+          format: date-time
+          description: Giờ máy chủ. Client không dùng đồng hồ máy mình để tính SLA.
+        traceId:
+          type: string
+          description: Nối với truy vết OpenTelemetry của yêu cầu REST đã sinh ra sự kiện.
+
+    OrderPlacedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [orderId, shortCode, tableLabel, lines]
+          properties:
+            orderId: { type: string, format: uuid }
+            shortCode: { type: string, examples: ['A04-17'] }
+            tableLabel: { type: string, examples: ['A-04'] }
+            placedAt: { type: string, format: date-time }
+            requiresStaffConfirmation:
+              type: boolean
+              description: 'Đơn đầu của phiên lạ — cổng chặn đơn giả ở `EC-03`.'
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  lineId: { type: string, format: uuid }
+                  name: { type: string }
+                  variantName: { type: string }
+                  optionNames:
+                    type: array
+                    items: { type: string }
+                  quantity: { type: integer }
+                  note: { type: string }
+                  station:
+                    type: string
+                    enum: [COFFEE, TEA, FOOD]
+
+    OrderLineStatusChangedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [orderId, lineId, status, version]
+          properties:
+            orderId: { type: string, format: uuid }
+            lineId: { type: string, format: uuid }
+            status:
+              type: string
+              enum: [CONFIRMED, PREPARING, READY, SERVED, CANCELLED]
+            version: { type: integer }
+            changedBy:
+              type: string
+              description: Tên hiển thị của nhân viên, để KDS báo "vừa được cập nhật bởi Minh".
+
+    OrderCancelledPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [orderId, reason]
+          properties:
+            orderId: { type: string, format: uuid }
+            reason: { type: string }
+            cancelledBy: { type: string }
+
+    IngredientSoldOutPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [ingredientId, affectedItemIds]
+          properties:
+            ingredientId: { type: string, format: uuid }
+            ingredientName: { type: string }
+            affectedItemIds:
+              type: array
+              items: { type: string, format: uuid }
+            affectedOpenOrderIds:
+              type: array
+              items: { type: string, format: uuid }
+
+    StaffCalledPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [tableLabel, reason]
+          properties:
+            tableLabel: { type: string }
+            reason:
+              type: string
+              enum: [REFILL_WATER, CLEAN_TABLE, PAYMENT_HELP, OTHER]
+            note: { type: string }
+
+    OrderStatusChangedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [orderId, status]
+          properties:
+            orderId: { type: string, format: uuid }
+            status:
+              type: string
+              enum: [PENDING, CONFIRMED, PREPARING, READY, SERVED, COMPLETED, CANCELLED]
+            estimatedReadyAt: { type: string, format: date-time }
+            lineStatuses:
+              type: array
+              items:
+                type: object
+                properties:
+                  lineId: { type: string, format: uuid }
+                  status: { type: string }
+
+    ItemUnavailablePayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [orderId, lineId, itemName]
+          properties:
+            orderId: { type: string, format: uuid }
+            lineId: { type: string, format: uuid }
+            itemName: { type: string }
+            refundAmount:
+              type: object
+              properties:
+                amount: { type: integer, format: int64 }
+                currency: { type: string, enum: [VND] }
+            alternatives:
+              type: array
+              description: Món thay thế do `FR-AI-01` gợi ý theo độ tương đồng.
+              items:
+                type: object
+                properties:
+                  menuItemId: { type: string, format: uuid }
+                  name: { type: string }
+            respondBy:
+              type: string
+              format: date-time
+              description: Quá hạn thì chuyển sang nhân viên xử lý tại bàn.
+
+    GroupCartUpdatedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [lines]
+          properties:
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  clientLineId: { type: string, format: uuid }
+                  menuItemId: { type: string, format: uuid }
+                  variantId: { type: string, format: uuid }
+                  optionIds:
+                    type: array
+                    items: { type: string, format: uuid }
+                  quantity: { type: integer }
+                  note: { type: string }
+                  addedBy: { type: string }
+            estimatedTotal:
+              type: object
+              description: |
+                Ước tính để hiển thị. Tổng tiền chính thức chỉ có sau khi máy chủ
+                tính lại lúc đặt món — `ADR-06`.
+              properties:
+                amount: { type: integer, format: int64 }
+                currency: { type: string, enum: [VND] }
+
+    ParticipantJoinedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [nickname, participantCount]
+          properties:
+            nickname: { type: string }
+            participantCount: { type: integer }
+
+    PaymentStatusChangedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [intentId, status]
+          properties:
+            intentId: { type: string, format: uuid }
+            status:
+              type: string
+              enum: [AUTHORIZING, AUTHORIZED, SETTLED, FAILED, VOIDED, EXPIRED, REFUNDED]
+            reference: { type: string }
+
+    TableStateChangedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [tableId, status]
+          properties:
+            tableId: { type: string, format: uuid }
+            label: { type: string }
+            status:
+              type: string
+              enum: [AVAILABLE, OCCUPIED, AWAITING_PAYMENT, CLEANING, DISABLED]
+
+    OperationalAlertPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          required: [severity, code, message]
+          properties:
+            severity:
+              type: string
+              enum: [INFO, WARNING, CRITICAL]
+            code:
+              type: string
+              enum:
+                - DUPLICATE_PAYMENT
+                - TABLE_IDLE_UNPAID
+                - ORDER_SLA_BREACHED
+                - AI_DEGRADED
+                - AI_BUDGET_THRESHOLD
+                - LOW_STOCK
+                - SUSPICIOUS_SESSION_ACTIVITY
+            message: { type: string }
+            relatedId: { type: string, format: uuid }
+            requiresAction:
+              type: boolean
+              description: |
+                `true` thì mục này vào khu vực "Cần xử lý" và **chặn chốt ca**
+                cho tới khi được giải quyết — `EC-08`.
+
+    CartCommandPayload:
+      type: object
+      required: [op, clientLineId]
+      properties:
+        op:
+          type: string
+          enum: [ADD, UPDATE_QUANTITY, REMOVE, CLEAR]
+        clientLineId:
+          type: string
+          format: uuid
+          description: Sinh phía client để thao tác trở nên idempotent.
+        menuItemId: { type: string, format: uuid }
+        variantId: { type: string, format: uuid }
+        optionIds:
+          type: array
+          items: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 0, maximum: 20 }
+        note: { type: string, maxLength: 200 }
+      additionalProperties: false
+
+    ResumeRequestPayload:
+      type: object
+      required: [channels]
+      properties:
+        channels:
+          type: array
+          items:
+            type: object
+            required: [address, lastSeq]
+            properties:
+              address: { type: string, examples: ['/topic/kds/{storeId}'] }
+              lastSeq: { type: integer, format: int64 }
+      additionalProperties: false

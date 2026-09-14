@@ -1,0 +1,86 @@
+name: Contract Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Lint, generate, and detect drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: ml/requirements-codegen.txt
+
+      - name: Install pinned generators
+        run: |
+          npm ci --ignore-scripts
+          python -m pip install --disable-pip-version-check --requirement ml/requirements-codegen.txt
+
+      - name: Lint OpenAPI and AsyncAPI
+        run: npm run contract:lint
+
+      - name: Validate and compile generated backend contract
+        run: >-
+          ./gradlew :backend:openApiValidate :backend:verifyGeneratedOpenApi
+          :backend:compileJava --rerun-tasks --no-daemon
+
+      - name: Regenerate web contracts
+        run: npm run contract:generate:web
+
+      - name: Regenerate Python contract
+        run: >-
+          datamodel-codegen
+          --input docs/api/openapi.yaml
+          --input-file-type openapi
+          --output ml/models/generated.py
+          --output-model-type pydantic_v2.BaseModel
+          --target-python-version 3.13
+          --use-standard-collections
+          --use-union-operator
+          --use-schema-description
+          --field-constraints
+          --disable-timestamp
+          --formatters black isort
+
+      - name: Compile generated Python model
+        run: python -m py_compile ml/models/generated.py
+
+      - name: Reject generated contract drift
+        run: >-
+          git diff --exit-code --
+          web-guest/src/types/api.d.ts
+          web-staff/src/types/api.d.ts
+          ml/models/generated.py

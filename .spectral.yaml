@@ -1,0 +1,27 @@
+extends:
+  - spectral:oas
+  - spectral:asyncapi
+
+rules:
+  qros-operation-id:
+    description: Mọi REST operation phải có operationId ổn định.
+    severity: error
+    given: $.paths.*[get,put,post,delete,options,head,patch,trace]
+    then:
+      field: operationId
+      function: truthy
+
+  qros-operation-requirements:
+    description: Mọi REST operation phải truy vết về ít nhất một mã yêu cầu.
+    severity: error
+    given: $.paths.*[get,put,post,delete,options,head,patch,trace]
+    then:
+      field: x-requirements
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            pattern: ^(FR|NFR|EC|ADR)-[A-Z0-9-]+$

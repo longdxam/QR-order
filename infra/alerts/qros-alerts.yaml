@@ -1,0 +1,52 @@
+# Cảnh báo QROS — NFR-OBS-05: "Mỗi cảnh báo phải kèm liên kết tới sổ tay xử lý (runbook)".
+#
+# Định dạng nhóm luật kiểu Prometheus Alertmanager, nhưng KHÔNG có Prometheus/Alertmanager thật
+# nào đọc file này ở M0 — repo chưa được cấp hạ tầng đó (không có trong docker-compose.yml, xem
+# CLAUDE.md mục BL-M0-11). `expr` ghi lại Ý ĐỊNH cho khi có hạ tầng thật, chưa phải PromQL đã chạy
+# được, vì các chỉ số nghiệp vụ tương ứng (tỷ lệ 401/423, kích thước outbox tồn đọng) chưa được
+# xuất ra dưới dạng metric — mới có traceId/log JSON (BL-M0-11 phần OpenTelemetry/logging).
+#
+# Điều CÓ THật và được kiểm bằng test (security/AlertRunbookLinksTest): mỗi alert dưới đây có
+# annotation runbook_url trỏ tới đúng một file có thật trong docs/runbooks/. Đây là phần của
+# NFR-OBS-05 có thể đúng/sai một cách khách quan ngay bây giờ, không phải chờ có Grafana.
+
+groups:
+  - name: qros-auth
+    rules:
+      - alert: QrosLoginFailureSpike
+        expr: 'sum(rate(qros_auth_login_failures_total[5m])) > 5'
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tỷ lệ đăng nhập thất bại tăng bất thường"
+          runbook_url: "docs/runbooks/dang-nhap-that-bai-hang-loat.md"
+
+      - alert: QrosRefreshTokenReuseDetected
+        expr: 'increase(qros_auth_refresh_reused_total[15m]) > 0'
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Phát hiện tái sử dụng refresh token — khả năng chiếm phiên"
+          runbook_url: "docs/runbooks/refresh-token-tai-su-dung.md"
+
+  - name: qros-infra
+    rules:
+      - alert: QrosOutboxBacklogGrowing
+        expr: 'qros_outbox_unpublished_count > 500'
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox tồn đọng không giảm — KDS và các kênh realtime khác trễ cập nhật"
+          runbook_url: "docs/runbooks/outbox-khong-phat.md"
+
+      - alert: QrosDatabaseDown
+        expr: 'up{job="qros-backend-readiness"} == 0'
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL không kết nối được — probe readiness báo DOWN"
+          runbook_url: "docs/runbooks/mat-ket-noi-postgresql.md"

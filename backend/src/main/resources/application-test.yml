@@ -1,0 +1,34 @@
+spring:
+  autoconfigure:
+    exclude: org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+  data:
+    redis:
+      repositories:
+        enabled: false
+  flyway:
+    enabled: false
+management:
+  health:
+    redis:
+      enabled: false
+
+# Khoá cố định chỉ dùng test, không phải bí mật thật (BL-M0-08). Tự nhất quán: khoá riêng ở đây
+# ký ra token mà khoá công khai cùng cặp ở đây xác minh được — test đăng nhập không cần ghi đè.
+# Test bảo mật ba vùng (SecurityZoneTestSupport) ghi đè keys[0] qua @DynamicPropertySource nên
+# không đụng tới cặp này.
+qros:
+  security:
+    guest:
+      keys:
+        - kid: guest-test-2026-09
+          x: dtYaDZasKGyaFQpOleKX7bzYCRHU89kn1clqPcEOcg8
+      signing-key:
+        kid: guest-test-2026-09
+        d: 0XGlw7S9BpUtSdMfLOHmPxHm6r8PWdGRcgo-NfjXf-Q
+    staff:
+      keys:
+        - kid: staff-test-2026-09
+          x: n6JL11qAXTYwM1TP0ceQr0ttu0bnsTolMt1zSKnfVFE
+      signing-key:
+        kid: staff-test-2026-09
+        d: tiTaZ2-kcji-1PlMnBCPIAvdw7V9Pue7Pq4phxML6uk

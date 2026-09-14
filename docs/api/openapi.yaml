@@ -1,0 +1,1261 @@
+openapi: 3.1.0
+
+info:
+  title: QROS — Guest, Staff & Admin API
+  version: 1.0.0
+  summary: Hợp đồng REST cho hệ thống đặt đồ uống qua QR tại bàn.
+  description: |
+    Hợp đồng này là **nguồn sự thật** cho ba phía triển khai: Spring Boot (server),
+    Next.js (web khách + KDS + quản trị), và các job Python theo lịch. Viết tay trước, sinh code sau —
+    không sinh spec từ annotation của backend, vì làm vậy thì backend luôn "đúng" theo định nghĩa
+    và hợp đồng mất tác dụng.
+
+    Mỗi operation mang `x-requirements` trỏ về mã yêu cầu trong `PRD-QROS-001` v1.1.
+
+    ## Bốn quy tắc bất biến
+
+    1. **Không có trường giá nào đi lên từ client.** Mọi schema request đặt món đều
+       `additionalProperties: false` và không khai báo trường giá. Client gửi `unitPrice`
+       sẽ bị chặn ngay ở tầng xác thực lược đồ, trả `400 PRICE_NOT_ACCEPTED` — `ADR-06`.
+    2. **Ba vùng, ba chuỗi filter độc lập.** `/guest/**` không bao giờ dùng chung
+       cấu hình bảo mật với `/staff/**` hay `/admin/**`.
+    3. **Tiền là số nguyên đơn vị đồng.** Không dùng số thực ở bất kỳ đâu.
+    4. **Mọi lỗi theo RFC 7807**, kèm phần mở rộng `code` (chuỗi ổn định để máy đọc)
+       và `traceId`.
+  contact:
+    name: QROS Engineering
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+
+servers:
+  - url: https://api.qros.example.com
+    description: Production
+  - url: https://staging-api.qros.example.com
+    description: Staging
+  - url: http://localhost:8080
+    description: Local
+
+tags:
+  - name: guest-session
+    description: Vòng đời phiên bàn — đổi mã QR lấy phiên có thời hạn.
+  - name: guest-menu
+    description: Thực đơn công khai theo chi nhánh.
+  - name: guest-order
+    description: Đặt món và theo dõi trạng thái.
+  - name: guest-payment
+    description: Thanh toán từ phía khách.
+  - name: guest-assistant
+    description: Trợ lý thực đơn và gợi ý món.
+  - name: staff-kds
+    description: Màn hình pha chế.
+  - name: staff-floor
+    description: Sơ đồ bàn và thu ngân.
+  - name: auth
+    description: Xác thực nhân viên.
+  - name: webhook
+    description: Điểm nhận callback từ hệ thống bên ngoài.
+
+security: []
+
+paths:
+
+  # ────────────────────────────────────────────────────────────────
+  #  PHIÊN BÀN
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/guest/sessions:
+    post:
+      operationId: startTableSession
+      tags: [guest-session]
+      summary: Đổi mã QR lấy phiên bàn
+      description: |
+        Xác minh chữ ký Ed25519 của `qrToken`, kiểm tra bàn tồn tại, chi nhánh đang mở cửa,
+        và (nếu bàn bật QR xoay vòng) kiểm TOTP. Trả về phiên bàn gắn với `deviceId`.
+
+        Khi bàn đã có phiên đang hoạt động, hành vi phụ thuộc tình huống — xem `EC-02`:
+        thiết bị cùng nhóm được **tham gia** phiên hiện có (`201` với `joined: true`);
+        nghi ngờ là nhóm khách mới thì trả `409 TABLE_SESSION_CONFLICT` để chuyển sang nhân viên.
+      x-requirements: [FR-CUS-01, NFR-SEC-01, EC-02, EC-03]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartSessionRequest' }
+      responses:
+        '201':
+          description: Phiên đã được tạo hoặc đã tham gia phiên sẵn có.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableSession' }
+        '401':
+          description: '`QR_INVALID_SIGNATURE` · `QR_OTP_EXPIRED`'
+          $ref: '#/components/responses/Problem'
+        '403':
+          description: '`STORE_CLOSED` · bàn ở trạng thái `DISABLED`'
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: '`TABLE_SESSION_CONFLICT` — cần nhân viên xử lý.'
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/guest/sessions/by-code:
+    post:
+      operationId: startTableSessionByCode
+      tags: [guest-session]
+      summary: Mở phiên bằng mã bàn 6 ký tự
+      description: Đường dự phòng khi camera không quét được QR. Giới hạn 5 lần thử / 10 phút / IP.
+      x-requirements: [FR-CUS-02]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartSessionByCodeRequest' }
+      responses:
+        '201':
+          description: Phiên đã được tạo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableSession' }
+        '401':
+          description: '`TABLE_CODE_INVALID`'
+          $ref: '#/components/responses/Problem'
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/guest/sessions/current:
+    get:
+      operationId: getCurrentSession
+      tags: [guest-session]
+      summary: Trạng thái phiên hiện tại
+      description: Trả về phiên bàn gắn với token khách hiện tại nếu phiên còn hiệu lực.
+      x-requirements: [FR-CUS-01]
+      security: [{ tableSession: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableSession' }
+        '401':
+          description: '`TABLE_SESSION_EXPIRED` — cần quét lại QR.'
+          $ref: '#/components/responses/Problem'
+
+  # ────────────────────────────────────────────────────────────────
+  #  THỰC ĐƠN
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/guest/menu:
+    get:
+      operationId: getMenu
+      tags: [guest-menu]
+      summary: Thực đơn của chi nhánh trong phiên
+      description: |
+        Trả về toàn bộ thực đơn đang phát hành, kèm trạng thái còn/hết theo thời gian thực.
+        Đáp ứng có `ETag`; client gửi `If-None-Match` để nhận `304` — đây là đường đi
+        chịu tải lớn nhất hệ thống, xem `NFR-PERF-01`.
+      x-requirements: [FR-CUS-03, FR-CUS-04, NFR-PERF-01]
+      security: [{ tableSession: [] }]
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, examples: ['public, max-age=60'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Menu' }
+        '304':
+          description: Thực đơn chưa đổi.
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /api/v1/guest/menu/items/{itemId}:
+    get:
+      operationId: getMenuItem
+      tags: [guest-menu]
+      summary: Chi tiết một món
+      description: Trả chi tiết món trong thực đơn của đúng chi nhánh thuộc phiên bàn hiện tại.
+      x-requirements: [FR-CUS-03, FR-CUS-05]
+      security: [{ tableSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MenuItem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ────────────────────────────────────────────────────────────────
+  #  ĐẶT MÓN
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/guest/orders:
+    post:
+      operationId: placeOrder
+      tags: [guest-order]
+      summary: Đặt món
+      description: |
+        **Điểm nhạy cảm nhất của toàn bộ hợp đồng.**
+
+        Client chỉ gửi định danh và số lượng. Máy chủ tính lại toàn bộ giá, phụ phí, thuế
+        và giảm giá từ catalog trong cùng một giao dịch. Lược đồ request đặt
+        `additionalProperties: false`, nên mọi trường lạ — đặc biệt là trường giá —
+        bị từ chối ngay ở tầng xác thực.
+
+        `Idempotency-Key` là **bắt buộc**. Gửi lại cùng khoá trong 24 giờ trả về đúng đơn cũ
+        kèm `200` thay vì tạo đơn mới. Đây là lớp bảo vệ chống chạm hai lần và chống thử lại
+        sau khi mất mạng.
+      x-requirements: [FR-CUS-08, FR-CUS-09, ADR-06, EC-01]
+      security: [{ tableSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+      responses:
+        '201':
+          description: Đơn đã được tạo.
+          headers:
+            Location:
+              schema: { type: string, format: uri-reference }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '200':
+          description: Khoá idempotency đã dùng — trả lại đơn đã tạo trước đó.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400':
+          description: |
+            `PRICE_NOT_ACCEPTED` — client gửi kèm trường giá.
+            `VALIDATION_FAILED` — payload sai lược đồ.
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: |
+            `PRICE_CHANGED` — giá đổi giữa lúc xem và lúc đặt; phần mở rộng `currentTotal`
+            chứa bảng giá mới để client hiển thị xác nhận lại.
+            `ITEM_SOLD_OUT` — món vừa hết.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/PriceChangedProblem' }
+        '422':
+          description: '`IDEMPOTENCY_KEY_REUSED` — khoá đã dùng cho một yêu cầu khác nội dung.'
+          $ref: '#/components/responses/Problem'
+        '429':
+          description: '`ORDER_RATE_LIMITED` — vượt hạn mức 3 đơn / 5 phút / phiên.'
+          $ref: '#/components/responses/RateLimited'
+
+    get:
+      operationId: listSessionOrders
+      tags: [guest-order]
+      summary: Các đơn trong phiên hiện tại
+      description: Liệt kê các đơn và tổng tiền thuộc đúng phiên bàn hiện tại.
+      x-requirements: [FR-CUS-10, FR-CUS-11]
+      security: [{ tableSession: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [orders, sessionTotal]
+                properties:
+                  orders:
+                    type: array
+                    items: { $ref: '#/components/schemas/Order' }
+                  sessionTotal: { $ref: '#/components/schemas/Money' }
+                  paymentStatus:
+                    type: string
+                    enum: [UNPAID, PENDING_CASH, AUTHORIZING, SETTLED]
+
+  /api/v1/guest/orders/{orderId}:
+    get:
+      operationId: getOrder
+      tags: [guest-order]
+      summary: Chi tiết một đơn
+      description: |
+        Kiểm tra quyền sở hữu ở cấp đối tượng: đơn phải thuộc đúng phiên đang gọi.
+        Không đủ điều kiện thì trả `404`, **không** trả `403` — tránh xác nhận sự tồn tại
+        của đơn thuộc bàn khác.
+      x-requirements: [FR-CUS-10, NFR-SEC-06]
+      security: [{ tableSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /api/v1/guest/orders/{orderId}/cancel:
+    post:
+      operationId: cancelOrderByGuest
+      tags: [guest-order]
+      summary: Khách tự huỷ đơn
+      description: Chỉ chấp nhận khi đơn còn ở `PENDING`. Từ `PREPARING` trở đi phải qua nhân viên.
+      x-requirements: [FR-CUS-08, EC-06]
+      security: [{ tableSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Đã huỷ.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '422':
+          description: '`INVALID_TRANSITION` — đơn đã rời khỏi `PENDING`.'
+          $ref: '#/components/responses/Problem'
+
+  /api/v1/guest/staff-calls:
+    post:
+      operationId: callStaff
+      tags: [guest-order]
+      summary: Gọi nhân viên
+      description: Giới hạn 1 lần / 90 giây / bàn để chống spam.
+      x-requirements: [FR-CUS-12]
+      security: [{ tableSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [REFILL_WATER, CLEAN_TABLE, PAYMENT_HELP, OTHER]
+                note: { type: string, maxLength: 200 }
+      responses:
+        '202':
+          description: Đã chuyển tới nhân viên.
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ────────────────────────────────────────────────────────────────
+  #  THANH TOÁN
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/guest/payments/intents:
+    post:
+      operationId: createPaymentIntent
+      tags: [guest-payment]
+      summary: Tạo ý định thanh toán
+      description: |
+        Tạo `PaymentIntent` **trước** khi chuyển hướng sang cổng thanh toán. Bắt buộc
+        `Idempotency-Key`, vì đây chính là điểm mà `EC-01` xảy ra: khách mất mạng sau khi
+        tiền đã bị trừ nhưng trước khi trình duyệt quay lại.
+
+        Trạng thái thanh toán **không bao giờ** được quyết định bởi URL trả về của trình duyệt.
+      x-requirements: [FR-CUS-13, FR-CUS-14, EC-01]
+      security: [{ tableSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePaymentIntentRequest' }
+      responses:
+        '201':
+          description: Ý định đã tạo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentIntent' }
+        '409':
+          description: '`PAYMENT_ALREADY_SETTLED` — hoá đơn đã thanh toán, xem `EC-08`.'
+          $ref: '#/components/responses/Problem'
+
+  /api/v1/guest/payments/intents/{intentId}:
+    get:
+      operationId: getPaymentIntent
+      tags: [guest-payment]
+      summary: Tra trạng thái thanh toán
+      description: |
+        Client dò kết quả mỗi 3 giây, tối đa 2 phút, trong lúc hiển thị
+        "Đang xác nhận thanh toán…". Đây là đường phục hồi phía khách của `EC-01`;
+        đường phục hồi phía máy chủ là tác vụ đối soát `FR-PAY-06`.
+      x-requirements: [EC-01, FR-PAY-06]
+      security: [{ tableSession: [] }]
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentIntent' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  # ────────────────────────────────────────────────────────────────
+  #  TRỢ LÝ & GỢI Ý
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/guest/recommendations:
+    get:
+      operationId: getRecommendations
+      tags: [guest-assistant]
+      summary: Gợi ý món
+      description: |
+        Chạy bằng mô hình thống kê cục bộ trên CPU, **không** phụ thuộc nhà cung cấp LLM
+        bên ngoài — nên endpoint này vẫn hoạt động khi mạng ra Internet chết, xem `EC-05`.
+        Trường `source` cho client biết đang nhận gợi ý từ mô hình hay từ danh sách dự phòng.
+      x-requirements: [FR-AI-01, FR-AI-02, FR-AI-08, NFR-PERF-04]
+      security: [{ tableSession: [] }]
+      parameters:
+        - name: context
+          in: query
+          schema:
+            type: string
+            enum: [MENU_BROWSE, CART_REVIEW]
+            default: MENU_BROWSE
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 5, default: 3 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecommendationList' }
+
+  /api/v1/guest/assistant/messages:
+    post:
+      operationId: sendAssistantMessage
+      tags: [guest-assistant]
+      summary: Gửi tin nhắn cho trợ lý thực đơn (SSE)
+      description: |
+        Đáp ứng dạng `text/event-stream` để đạt `NFR-PERF-05`. Backend gọi AI service,
+        AI service gọi Claude API. Khoá API chỉ tồn tại phía máy chủ — trình duyệt
+        **không bao giờ** gọi thẳng nhà cung cấp, xem `NFR-AI-02`.
+
+        Giới hạn 512 token vào / 512 token ra mỗi lượt, 20 lượt mỗi phiên,
+        6 tin nhắn mỗi phút — `NFR-SEC-19`.
+      x-requirements: [FR-AI-03, FR-AI-04, FR-AI-08, NFR-SEC-16, NFR-SEC-19, NFR-AI-02]
+      security: [{ tableSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [message]
+              properties:
+                message: { type: string, minLength: 1, maxLength: 1000 }
+                conversationId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: |
+            Luồng SSE. Các loại sự kiện: `token`, `tool_call`, `done`, `error`.
+            `tool_call` chỉ mang một trong bốn hàm cho phép ở `FR-AI-04`, và
+            `add_to_cart` luôn cần khách xác nhận bằng một thao tác chạm.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '429':
+          description: '`ASSISTANT_RATE_LIMITED`'
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: |
+            `AI_UNAVAILABLE` — nhà cung cấp gián đoạn, bị chặn tần suất, hoặc chi nhánh
+            đã chạm trần ngân sách. Client chuyển sang khối FAQ tĩnh, xem `EC-05`.
+          $ref: '#/components/responses/Problem'
+
+  # ────────────────────────────────────────────────────────────────
+  #  KDS
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/staff/kds/queue:
+    get:
+      operationId: getKdsQueue
+      tags: [staff-kds]
+      summary: Hàng đợi pha chế
+      description: |
+        Tải trạng thái ban đầu. Cập nhật sau đó đến qua WebSocket — xem `asyncapi.yaml`,
+        kênh `kds/{storeId}`. KDS lưu kết quả này để chạy được ở chế độ ngoại tuyến (`FR-BAR-06`).
+      x-requirements: [FR-BAR-01, FR-BAR-04, FR-BAR-07]
+      security: [{ staffSession: [] }]
+      parameters:
+        - name: station
+          in: query
+          description: Lọc theo trạm pha chế.
+          schema: { type: string, enum: [COFFEE, TEA, FOOD, ALL], default: ALL }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tickets, serverTime]
+                properties:
+                  tickets:
+                    type: array
+                    items: { $ref: '#/components/schemas/KdsTicket' }
+                  serverTime:
+                    type: string
+                    format: date-time
+                    description: Để KDS tính bộ đếm SLA mà không phụ thuộc đồng hồ máy khách.
+
+  /api/v1/staff/order-lines/{lineId}/status:
+    patch:
+      operationId: updateOrderLineStatus
+      tags: [staff-kds]
+      summary: Đổi trạng thái một món
+      description: |
+        Dùng **khoá lạc quan**: client gửi `If-Match` mang `version` đã đọc. Lệch phiên bản
+        trả `409` kèm trạng thái hiện thời để client tự làm mới — đây là cách `EC-06` được
+        xử lý ở tầng hợp đồng.
+
+        Chuyển đổi không hợp lệ theo máy trạng thái trả `422 INVALID_TRANSITION`,
+        kể cả khi phiên bản còn khớp.
+      x-requirements: [FR-BAR-03, FR-BAR-09, EC-06]
+      security: [{ staffSession: [] }]
+      parameters:
+        - name: lineId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: true
+          description: Giá trị `version` của dòng đơn mà client đang thấy.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [PREPARING, READY, SERVED, CANCELLED]
+                reason:
+                  type: string
+                  maxLength: 200
+                  description: Bắt buộc khi `status = CANCELLED`.
+      responses:
+        '200':
+          description: Đã cập nhật.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderLine' }
+        '409':
+          description: '`VERSION_CONFLICT` — người khác vừa cập nhật; phần mở rộng `current` chứa bản mới nhất.'
+          $ref: '#/components/responses/Problem'
+        '422':
+          description: '`INVALID_TRANSITION`'
+          $ref: '#/components/responses/Problem'
+
+  /api/v1/staff/ingredients/{ingredientId}/sold-out:
+    post:
+      operationId: markIngredientSoldOut
+      tags: [staff-kds]
+      summary: Báo hết nguyên liệu
+      description: |
+        Ẩn mọi món dùng nguyên liệu này khỏi thực đơn khách trong ≤ 2 giây, và phát
+        sự kiện cảnh báo cho các đơn đang chờ có chứa món bị ảnh hưởng — `EC-04`.
+      x-requirements: [FR-BAR-05, EC-04]
+      security: [{ staffSession: [] }]
+      parameters:
+        - name: ingredientId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Đã cập nhật.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  affectedItemIds:
+                    type: array
+                    items: { type: string, format: uuid }
+                  affectedOpenOrderIds:
+                    type: array
+                    items: { type: string, format: uuid }
+
+  # ────────────────────────────────────────────────────────────────
+  #  SƠ ĐỒ BÀN & THU NGÂN
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/staff/tables:
+    get:
+      operationId: listTables
+      tags: [staff-floor]
+      summary: Sơ đồ bàn theo trạng thái
+      description: Trả trạng thái các bàn thuộc những chi nhánh nằm trong phạm vi phiên nhân viên.
+      x-requirements: [FR-PAY-01]
+      security: [{ staffSession: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TableState' }
+
+  /api/v1/staff/tables/{tableId}/close:
+    post:
+      operationId: closeTable
+      tags: [staff-floor]
+      summary: Đóng bàn
+      description: |
+        Đóng bàn khi còn hoá đơn chưa thanh toán bắt buộc có `reason`. Lý do
+        `GUEST_LEFT_UNPAID` tạo bản ghi thất thoát cho báo cáo tuần — `EC-07`.
+      x-requirements: [FR-PAY-02, EC-07]
+      security: [{ staffSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/TableId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  enum: [PAID_CASH_UNRECORDED, GUEST_LEFT_UNPAID, SYSTEM_ERROR, OTHER]
+                note: { type: string, maxLength: 300 }
+      responses:
+        '200':
+          description: Bàn đã đóng.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableState' }
+        '422':
+          description: '`REASON_REQUIRED` — còn dư nợ nhưng thiếu lý do.'
+          $ref: '#/components/responses/Problem'
+
+  /api/v1/staff/orders/{orderId}/payments/cash:
+    post:
+      operationId: confirmCashPayment
+      tags: [staff-floor]
+      summary: Xác nhận thu tiền mặt
+      description: |
+        Nếu hoá đơn đang có ý định thanh toán trực tuyến ở `AUTHORIZING`, máy chủ vẫn
+        cho phép nhưng đánh dấu giao dịch là có rủi ro trùng và bật cảnh báo — `EC-08`.
+        Ràng buộc duy nhất ở tầng CSDL bảo đảm mỗi hoá đơn chỉ có tối đa một giao dịch `SETTLED`.
+      x-requirements: [FR-PAY-03, EC-08]
+      security: [{ staffSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tendered, acknowledgeOnlinePending]
+              properties:
+                tendered:
+                  $ref: '#/components/schemas/Money'
+                acknowledgeOnlinePending:
+                  type: boolean
+                  description: |
+                    Phải là `true` nếu hoá đơn đang chờ kết quả thanh toán ví. Buộc thu ngân
+                    xác nhận có chủ đích thay vì bấm qua theo quán tính.
+      responses:
+        '200':
+          description: Đã ghi nhận.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CashPaymentResult' }
+        '409':
+          description: '`PAYMENT_ALREADY_SETTLED`'
+          $ref: '#/components/responses/Problem'
+
+  # ────────────────────────────────────────────────────────────────
+  #  XÁC THỰC NHÂN VIÊN
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/auth/login:
+    post:
+      operationId: staffLogin
+      tags: [auth]
+      summary: Đăng nhập nhân viên
+      description: |
+        Token đặt trong cookie `HttpOnly; Secure; SameSite=Strict; Path=/api`.
+        **Không** trả token trong body — `localStorage` bị XSS đọc được, xem `NFR-SEC-05`.
+        Thông báo lỗi không tiết lộ email có tồn tại hay không.
+      x-requirements: [FR-AUTH-01, FR-AUTH-02, FR-AUTH-03, NFR-SEC-05]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12, maxLength: 256 }
+                totp:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+                  description: Bắt buộc với `STORE_MANAGER` và `ADMIN`.
+      responses:
+        '204':
+          description: Đăng nhập thành công; token nằm trong cookie.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+        '401':
+          description: '`INVALID_CREDENTIALS` — cùng một thông điệp cho mọi nguyên nhân.'
+          $ref: '#/components/responses/Problem'
+        '423':
+          description: '`ACCOUNT_LOCKED` — 5 lần sai trong 15 phút.'
+          $ref: '#/components/responses/Problem'
+
+  /api/v1/auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [auth]
+      summary: Xoay vòng token
+      description: |
+        Áp dụng xoay vòng có phát hiện tái sử dụng: dùng lại một refresh token đã tiêu
+        sẽ **thu hồi toàn bộ chuỗi token** của người dùng đó và phát cảnh báo bảo mật —
+        `NFR-SEC-04`.
+      x-requirements: [NFR-SEC-04, NFR-SEC-06]
+      security: []
+      responses:
+        '204':
+          description: Đã cấp token mới.
+        '401':
+          description: '`REFRESH_REUSED` — phát hiện tái sử dụng, toàn bộ chuỗi đã bị thu hồi.'
+          $ref: '#/components/responses/Problem'
+
+  # ────────────────────────────────────────────────────────────────
+  #  WEBHOOK
+  # ────────────────────────────────────────────────────────────────
+
+  /api/v1/webhooks/payments/{provider}:
+    post:
+      operationId: receivePaymentWebhook
+      tags: [webhook]
+      summary: Nhận callback từ cổng thanh toán
+      description: |
+        **Nguồn sự thật duy nhất về trạng thái thanh toán.**
+
+        Chữ ký HMAC được xác minh **trước khi** phân tích nội dung. Chống phát lại bằng
+        `nonce` và cửa sổ thời gian. Xử lý idempotent: cùng một sự kiện gửi nhiều lần
+        chỉ có tác dụng một lần.
+
+        Nếu sự kiện thành công đến sau khi hoá đơn đã `SETTLED` bằng tiền mặt, hệ thống
+        **không** từ chối im lặng mà tạo `Refund` chờ duyệt gắn nhãn `DUPLICATE_PAYMENT` — `EC-08`.
+      x-requirements: [FR-CUS-14, FR-PAY-06, EC-01, EC-08, NFR-SEC-08]
+      security: [{ webhookSignature: [] }]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [vnpay, momo, zalopay] }
+        - name: X-Signature
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Timestamp
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Cấu trúc do từng cổng quy định; chuẩn hoá ở tầng adapter.
+      responses:
+        '204':
+          description: Đã tiếp nhận. Luôn trả về nhanh; xử lý nặng đẩy sang hàng đợi.
+        '401':
+          description: '`WEBHOOK_SIGNATURE_INVALID`'
+          $ref: '#/components/responses/Problem'
+
+components:
+
+  securitySchemes:
+    tableSession:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWS `EdDSA`, TTL 90 phút trượt theo hoạt động, gắn với `deviceId`.
+        Claim: `iss`, `aud`, `sub`, `exp`, `iat`, `jti`, `sid`, `tid`, `scope`, `tv`.
+        Không chứa thông tin cá nhân.
+    staffSession:
+      type: apiKey
+      in: cookie
+      name: qros_session
+      description: |
+        Cookie `HttpOnly; Secure; SameSite=Strict; Path=/api`. TTL 15 phút,
+        làm mới qua `/auth/refresh`.
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: HMAC-SHA256 trên raw body, khoá chia sẻ với cổng thanh toán.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUIDv4. Lưu 24 giờ. Gửi lại cùng khoá trả về kết quả cũ.
+      schema: { type: string, format: uuid }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TableId:
+      name: tableId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Problem:
+      description: Lỗi theo RFC 7807.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Vượt hạn mức.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+
+    Problem:
+      type: object
+      description: RFC 7807 kèm hai phần mở rộng bắt buộc của QROS.
+      required: [type, title, status, code, traceId]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail:
+          type: string
+          description: |
+            Thông điệp cho người dùng cuối. **Không bao giờ** chứa stack trace,
+            câu truy vấn, hay chi tiết nội bộ — `NFR-SEC` A05.
+        instance: { type: string, format: uri-reference }
+        code:
+          type: string
+          description: Mã ổn định để máy đọc, ví dụ `PRICE_NOT_ACCEPTED`.
+          examples: [PRICE_NOT_ACCEPTED, ITEM_SOLD_OUT, INVALID_TRANSITION]
+        traceId:
+          type: string
+          description: Tương quan với truy vết OpenTelemetry để nhân viên tra cứu.
+
+    PriceChangedProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            currentTotal: { $ref: '#/components/schemas/Money' }
+            changedLines:
+              type: array
+              items:
+                type: object
+                properties:
+                  menuItemId: { type: string, format: uuid }
+                  oldUnitPrice: { $ref: '#/components/schemas/Money' }
+                  newUnitPrice: { $ref: '#/components/schemas/Money' }
+
+    Money:
+      type: object
+      description: |
+        Tiền luôn là **số nguyên đơn vị đồng**. Không dùng số thực ở bất kỳ đâu
+        trong hệ thống, kể cả khi hiển thị.
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          examples: [55000]
+        currency:
+          type: string
+          enum: [VND]
+      additionalProperties: false
+
+    StartSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [qrToken, deviceId]
+      properties:
+        qrToken:
+          type: string
+          description: JWS Ed25519 đọc từ mã QR trên mặt bàn.
+        deviceId:
+          type: string
+          format: uuid
+          description: UUID sinh phía client, lưu lâu dài trong trình duyệt.
+        nickname:
+          type: string
+          maxLength: 24
+          description: Biệt danh hiển thị khi nhiều thiết bị chung một bàn.
+        coords:
+          type: object
+          description: Tuỳ chọn, chỉ gửi khi khách cấp quyền vị trí. Chỉ dùng làm tín hiệu phụ.
+          additionalProperties: false
+          properties:
+            lat: { type: number }
+            lon: { type: number }
+
+    StartSessionByCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [tableCode, deviceId]
+      properties:
+        tableCode:
+          type: string
+          pattern: '^[A-Z0-9]{6}$'
+        deviceId: { type: string, format: uuid }
+        nickname: { type: string, maxLength: 24 }
+
+    TableSession:
+      type: object
+      required: [sessionId, storeId, tableId, tableLabel, expiresAt, joined, accessToken]
+      properties:
+        sessionId: { type: string, format: uuid }
+        storeId: { type: string, format: uuid }
+        storeName: { type: string }
+        tableId: { type: string, format: uuid }
+        tableLabel: { type: string, examples: ['A-04'] }
+        zoneName: { type: string }
+        accessToken:
+          type: string
+          description: JWS phiên bàn. Client đính kèm ở header `Authorization`.
+        expiresAt: { type: string, format: date-time }
+        joined:
+          type: boolean
+          description: '`true` nếu thiết bị tham gia một phiên đã có sẵn — xem `EC-02`.'
+        participants:
+          type: array
+          description: Biệt danh các thiết bị trong phiên. Không chứa dữ liệu cá nhân.
+          items:
+            type: object
+            properties:
+              nickname: { type: string }
+              isSelf: { type: boolean }
+
+    Menu:
+      type: object
+      required: [storeId, categories, updatedAt]
+      properties:
+        storeId: { type: string, format: uuid }
+        updatedAt: { type: string, format: date-time }
+        categories:
+          type: array
+          items:
+            type: object
+            required: [id, name, items]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              displayOrder: { type: integer }
+              items:
+                type: array
+                items: { $ref: '#/components/schemas/MenuItem' }
+
+    MenuItem:
+      type: object
+      required: [id, name, basePrice, available, variants]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        imageUrl: { type: string, format: uri }
+        basePrice: { $ref: '#/components/schemas/Money' }
+        available:
+          type: boolean
+          description: Cập nhật realtime khi barista báo hết nguyên liệu — `FR-BAR-05`.
+        allergens:
+          type: array
+          description: Nhãn cảnh báo dị ứng. Sai ở đây là rủi ro sức khoẻ, không phải lỗi hiển thị.
+          items:
+            type: string
+            enum: [MILK, PEANUT, GLUTEN, SOY, EGG, NUTS]
+        attributes:
+          type: array
+          items:
+            type: string
+            enum: [DAIRY_FREE, CAFFEINE_FREE, LOW_SUGAR, VEGAN, HOT, COLD]
+        variants:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [id, name, price]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string, examples: ['Size L'] }
+              price: { $ref: '#/components/schemas/Money' }
+              available: { type: boolean }
+        optionGroups:
+          type: array
+          items: { $ref: '#/components/schemas/OptionGroup' }
+
+    OptionGroup:
+      type: object
+      required: [id, name, selection, options]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, examples: ['Mức đường'] }
+        selection:
+          type: string
+          enum: [SINGLE, MULTIPLE]
+        required: { type: boolean }
+        minSelect: { type: integer, minimum: 0 }
+        maxSelect: { type: integer, minimum: 1 }
+        options:
+          type: array
+          items:
+            type: object
+            required: [id, name, surcharge]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string, examples: ['50%'] }
+              surcharge: { $ref: '#/components/schemas/Money' }
+              available: { type: boolean }
+
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        ⚠ `additionalProperties: false` ở đây và ở `CreateOrderLine` là biện pháp cưỡng chế
+        `ADR-06` tại tầng hợp đồng. Không được nới lỏng trong bất kỳ hoàn cảnh nào.
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 8
+          description: Tối đa 8 món mỗi đơn — hạn mức chống lạm dụng, lớp 7 mục 5.3.2.
+          items: { $ref: '#/components/schemas/CreateOrderLine' }
+        note: { type: string, maxLength: 200 }
+
+    CreateOrderLine:
+      type: object
+      additionalProperties: false
+      required: [menuItemId, variantId, quantity]
+      properties:
+        menuItemId: { type: string, format: uuid }
+        variantId: { type: string, format: uuid }
+        optionIds:
+          type: array
+          maxItems: 10
+          items: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 20 }
+        note:
+          type: string
+          maxLength: 200
+          description: |
+            Văn bản tự do do khách nhập. Được làm sạch trước khi hiển thị trên KDS,
+            và coi là **dữ liệu không tin cậy** nếu lọt vào ngữ cảnh trợ lý — `NFR-SEC-16`.
+        addedBy: { type: string, maxLength: 24 }
+
+    Order:
+      type: object
+      required: [id, status, lines, total, placedAt, version]
+      properties:
+        id: { type: string, format: uuid }
+        shortCode:
+          type: string
+          description: Mã ngắn hiển thị cho khách và barista.
+          examples: ['A04-17']
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, PREPARING, READY, SERVED, COMPLETED, CANCELLED, EXPIRED]
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/OrderLine' }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        placedAt: { type: string, format: date-time }
+        estimatedReadyAt:
+          type: string
+          format: date-time
+          description: Tính theo độ dài hàng đợi hiện tại — `FR-CUS-10`.
+        requiresStaffConfirmation:
+          type: boolean
+          description: '`true` cho đơn đầu tiên của phiên lạ — cổng xác nhận ở `EC-03`.'
+        version: { type: integer }
+
+    OrderLine:
+      type: object
+      required: [id, menuItemId, name, quantity, lineTotal, status, version]
+      properties:
+        id: { type: string, format: uuid }
+        menuItemId: { type: string, format: uuid }
+        name: { type: string }
+        variantName: { type: string }
+        optionNames:
+          type: array
+          items: { type: string }
+          examples: [['Đường 50%', 'Ít đá', 'Thêm trân châu']]
+        quantity: { type: integer }
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+          description: Chỉ có ở **đáp ứng**. Không bao giờ chấp nhận ở request.
+        lineTotal: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+        addedBy: { type: string }
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, PREPARING, READY, SERVED, CANCELLED]
+        version:
+          type: integer
+          description: Dùng cho khoá lạc quan qua `If-Match` — `EC-06`.
+
+    KdsTicket:
+      type: object
+      required: [orderId, shortCode, tableLabel, placedAt, lines, slaSeconds]
+      properties:
+        orderId: { type: string, format: uuid }
+        shortCode: { type: string }
+        tableLabel: { type: string }
+        placedAt: { type: string, format: date-time }
+        slaSeconds:
+          type: integer
+          description: Ngưỡng cảnh báo, mặc định 480 giây — `FR-BAR-04`.
+        isOverdue: { type: boolean }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/OrderLine' }
+
+    TableState:
+      type: object
+      required: [tableId, label, status]
+      properties:
+        tableId: { type: string, format: uuid }
+        label: { type: string }
+        zoneName: { type: string }
+        status:
+          type: string
+          enum: [AVAILABLE, OCCUPIED, AWAITING_PAYMENT, CLEANING, DISABLED]
+        openedAt: { type: string, format: date-time }
+        unpaidTotal: { $ref: '#/components/schemas/Money' }
+        idleMinutes:
+          type: integer
+          description: Vượt 45 phút mà còn dư nợ thì hiện cảnh báo — `EC-07`.
+
+    CreatePaymentIntentRequest:
+      type: object
+      additionalProperties: false
+      required: [method]
+      properties:
+        method:
+          type: string
+          enum: [CASH, VNPAY, MOMO, ZALOPAY]
+        orderIds:
+          type: array
+          description: Bỏ trống để thanh toán toàn bộ hoá đơn của phiên.
+          items: { type: string, format: uuid }
+        returnUrl:
+          type: string
+          format: uri
+          description: |
+            Chỉ để đưa khách trở lại giao diện. **Không** được dùng làm căn cứ xác định
+            trạng thái thanh toán — xem `EC-01`.
+
+    PaymentIntent:
+      type: object
+      required: [id, status, amount, method]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [CREATED, AUTHORIZING, AUTHORIZED, SETTLED, FAILED, VOIDED, EXPIRED]
+        amount: { $ref: '#/components/schemas/Money' }
+        method: { type: string }
+        redirectUrl:
+          type: string
+          format: uri
+          description: Nơi chuyển hướng khách sang cổng thanh toán.
+        expiresAt:
+          type: string
+          format: date-time
+          description: Quá 15 phút không có kết luận thì chuyển `EXPIRED` — `EC-01`.
+        reference:
+          type: string
+          description: Mã tham chiếu để thu ngân đối soát tay khi cần.
+
+    CashPaymentResult:
+      type: object
+      required: [orderId, settled, change]
+      properties:
+        orderId: { type: string, format: uuid }
+        settled: { type: boolean }
+        change: { $ref: '#/components/schemas/Money' }
+        duplicateWarning:
+          type: boolean
+          description: '`true` nếu tồn tại ý định thanh toán trực tuyến đang chờ — `EC-08`.'
+
+    RecommendationList:
+      type: object
+      required: [items, source]
+      properties:
+        source:
+          type: string
+          enum: [MODEL, RULE_BASED_FALLBACK]
+          description: |
+            `RULE_BASED_FALLBACK` khi mô hình chưa đủ dữ liệu (`FR-AI-02`) hoặc đang suy giảm.
+            Client đổi tiêu đề khối từ "Gợi ý cho bạn" thành "Món bán chạy hôm nay" —
+            không hiển thị lỗi kỹ thuật cho khách.
+        items:
+          type: array
+          items:
+            type: object
+            required: [menuItemId, name, reason]
+            properties:
+              menuItemId: { type: string, format: uuid }
+              name: { type: string }
+              price: { $ref: '#/components/schemas/Money' }
+              reason:
+                type: string
+                description: Lý do hiển thị cho khách, ví dụ "Thường được gọi kèm".
