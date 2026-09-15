@@ -38,6 +38,17 @@ jobs:
           --tests com.qros.security.IdorTest
           --tests com.qros.security.PriceTamperingTest
 
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-regressions
+          path: |
+            backend/build/test-results/test
+            backend/build/reports/tests/test
+          if-no-files-found: warn
+          retention-days: 14
+
   e2e:
     name: QR to SERVED (${{ matrix.browser }})
     runs-on: ubuntu-latest
@@ -102,7 +113,18 @@ jobs:
       - name: Run menu revalidation load gate
         uses: grafana/setup-k6-action@v1
 
-      - run: k6 run load/menu.js
+      - run: k6 run --summary-export=load/menu-summary.json load/menu.js
 
       - name: Run order load gate
-        run: k6 run load/orders.js
+        run: k6 run --summary-export=load/orders-summary.json load/orders.js
+
+      - name: Upload k6 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary
+          path: |
+            load/menu-summary.json
+            load/orders-summary.json
+          if-no-files-found: warn
+          retention-days: 14

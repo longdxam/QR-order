@@ -58,9 +58,9 @@ Gate chỉ đạt khi cả ba job xanh:
 - `k6 menu and ordering`: menu p95 < 120 ms, p99 < 250 ms; đặt món p95 < 400 ms, p99 < 800 ms;
   lỗi HTTP dưới 1%.
 
-Tải artifact `playwright-chromium` và `playwright-webkit` từ workflow run, lưu URL run GitHub,
-ngày giờ, commit SHA và tóm tắt k6 vào bằng chứng phát hành. Lượt fail phải giữ artifact để điều tra;
-không chạy lại rồi xoá dấu vết lượt fail.
+Tải artifact `playwright-chromium`, `playwright-webkit`, `security-regressions` và `k6-summary` từ
+workflow run. Lưu URL run GitHub, ngày giờ, commit SHA và tóm tắt k6 vào bằng chứng phát hành. Lượt
+fail phải giữ artifact để điều tra; không chạy lại rồi xoá dấu vết lượt fail.
 
 ## 5. Khi gate đỏ
 
