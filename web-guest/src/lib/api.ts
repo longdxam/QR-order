@@ -1,4 +1,5 @@
 import type { components } from "@/types/api";
+import { getOrCreateDeviceId } from "@/lib/device";
 
 export type Problem = components["schemas"]["Problem"];
 export type TableSession = components["schemas"]["TableSession"];
@@ -21,6 +22,14 @@ export class ApiProblemError extends Error {
     super(problem.detail ?? problem.title);
     this.problem = problem;
   }
+}
+
+/** Header bắt buộc của guest token theo `TM-SES-01`; UUID lưu bền trong browser. */
+function guestHeaders(accessToken: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    "X-Device-Id": getOrCreateDeviceId(),
+  };
 }
 
 async function postJson<TResponse>(path: string, body: unknown): Promise<TResponse> {
@@ -58,7 +67,7 @@ export async function getMenu(
   accessToken: string,
   etag?: string,
 ): Promise<{ menu: Menu; etag: string | null } | null> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  const headers: Record<string, string> = guestHeaders(accessToken);
   if (etag) {
     headers["If-None-Match"] = etag;
   }
@@ -82,7 +91,7 @@ export async function placeOrder(
   const response = await fetch("/api/v1/guest/orders", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      ...guestHeaders(accessToken),
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
     },
@@ -97,7 +106,7 @@ export async function placeOrder(
 /** Đọc lại đơn thuộc đúng phiên hiện tại; server trả 404 nếu đơn thuộc phiên khác. */
 export async function getOrder(accessToken: string, orderId: string): Promise<Order> {
   const response = await fetch(`/api/v1/guest/orders/${encodeURIComponent(orderId)}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: guestHeaders(accessToken),
   });
   if (!response.ok) {
     throw new ApiProblemError((await response.json()) as Problem);
