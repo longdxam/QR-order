@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.spring.boot.starter.flyway)
     implementation(libs.spring.boot.starter.validation)
     implementation(libs.spring.boot.starter.webmvc)
+    implementation(libs.spring.boot.starter.websocket)
     runtimeOnly(libs.flyway.postgresql)
     runtimeOnly(libs.postgresql)
     runtimeOnly(libs.bouncycastle.provider)

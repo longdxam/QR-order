@@ -2,6 +2,7 @@
   "name": "web-guest",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "engines": {
     "node": ">=24"
   },
@@ -10,7 +11,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --test src/lib/cart.test.mjs",
+    "bundle:check": "node scripts/check-initial-js-budget.mjs"
   },
   "dependencies": {
     "next": "16.3.5",
@@ -23,6 +26,7 @@
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.1",
     "eslint-config-next": "16.3.5",
+    "fake-indexeddb": "6.2.5",
     "typescript": "5.9.3"
   }
 }

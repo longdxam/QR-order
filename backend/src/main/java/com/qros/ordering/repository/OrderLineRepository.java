@@ -12,4 +12,6 @@ public interface OrderLineRepository extends JpaRepository<OrderLine, UUID> {
     List<OrderLine> findByOrderIdInOrderByOrderId(List<UUID> orderIds);
 
     List<OrderLine> findByOrderId(UUID orderId);
+
+    java.util.Optional<OrderLine> findByIdAndOrderId(UUID id, UUID orderId);
 }

@@ -3,7 +3,6 @@ package com.qros.catalog.controller;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
@@ -55,6 +54,8 @@ import tools.jackson.databind.ObjectMapper;
 @ConditionalOnProperty(name = "spring.datasource.url")
 public class GuestMenuController implements GuestMenuApi {
 
+    private static final CacheControl REVALIDATE_MENU = CacheControl.noCache().cachePrivate().mustRevalidate();
+
     private final MenuService menuService;
     private final ObjectMapper objectMapper;
 
@@ -73,13 +74,13 @@ public class GuestMenuController implements GuestMenuApi {
         if (etag.equals(ifNoneMatch)) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
                     .eTag(etag)
-                    .cacheControl(CacheControl.maxAge(Duration.ofSeconds(60)).cachePublic())
+                    .cacheControl(REVALIDATE_MENU)
                     .build();
         }
 
         return ResponseEntity.ok()
                 .eTag(etag)
-                .cacheControl(CacheControl.maxAge(Duration.ofSeconds(60)).cachePublic())
+                .cacheControl(REVALIDATE_MENU)
                 .body(dto);
     }
 

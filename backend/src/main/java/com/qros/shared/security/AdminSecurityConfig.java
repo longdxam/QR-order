@@ -46,11 +46,13 @@ public class AdminSecurityConfig {
 
         CookieSessionAuthenticationFilter cookieFilter =
                 new CookieSessionAuthenticationFilter(adminJwtVerifier, entryPoint, tokenVersionValidator);
+        StoreMdcFilter storeMdcFilter = new StoreMdcFilter();
 
         return http.securityMatcher("/api/v1/admin/**")
                 .authorizeHttpRequests(auth -> auth
                         .anyRequest().hasAuthority("SCOPE_" + properties.admin().scope()))
                 .addFilterBefore(cookieFilter, AuthorizationFilter.class)
+                .addFilterAfter(storeMdcFilter, CookieSessionAuthenticationFilter.class)
                 // FR-AUTH-02, cùng lý do StaffSecurityConfig. Vùng admin chưa phát token được
                 // (OPEN-07) nên nhánh này chưa có test chạm tới, nhưng dây sẵn để không quên.
                 .addFilterAfter(mfaEnforcementFilter, CookieSessionAuthenticationFilter.class)

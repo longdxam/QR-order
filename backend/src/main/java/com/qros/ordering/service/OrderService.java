@@ -133,9 +133,11 @@ public class OrderService {
 
         CustomerOrder order = CustomerOrder.moi(session.storeId(), session.tableId(), session.sessionId(),
                 shortCode, subtotal, requiresStaffConfirmation, now);
+        if (!requiresStaffConfirmation) {
+            order.xacNhanTuDong();
+        }
         customerOrderRepository.save(order);
-        orderStatusLogRepository.save(OrderStatusLog.chuyen(order.getId(), null, CustomerOrder.STATUS_PENDING,
-                null, now));
+        orderStatusLogRepository.save(OrderStatusLog.chuyen(order.getId(), null, order.getStatus(), null, now));
 
         List<OrderLine> savedLines = daDinhGia.stream()
                 .map(d -> {
@@ -143,6 +145,9 @@ public class OrderService {
                             d.gia().itemName(), d.gia().variantName(), d.gia().unitPriceEach(),
                             d.input().quantity(), lamSachGhiChu(d.input().note()), d.input().addedBy(),
                             d.gia().station());
+                    if (!requiresStaffConfirmation) {
+                        line.xacNhanTuDong(now);
+                    }
                     orderLineRepository.save(line);
                     d.gia().options().forEach(option -> orderLineOptionRepository.save(
                             new OrderLineOption(line.getId(), option.optionChoiceId(), option.name(),
@@ -197,6 +202,8 @@ public class OrderService {
                 "Khách tự huỷ", now));
         outboxWriter.append(new OrderCancelledEvent(DomainEvent.newEventId(), orderId, order.getStoreId(),
                 sessionId, now, Map.of("orderId", orderId.toString(), "reason", "Khách tự huỷ")));
+        outboxWriter.append(new OrderCancelledEvent(DomainEvent.newEventId(), orderId, order.getStoreId(),
+                null, now, Map.of("orderId", orderId.toString(), "reason", "Khách tự huỷ")));
 
         List<OrderLine> lines = orderLineRepository.findByOrderId(orderId);
         return toDto(order, lines, tuyChonTheoDong(lines));
@@ -265,10 +272,11 @@ public class OrderService {
         payload.put("shortCode", order.getShortCode());
         payload.put("tableLabel", tableLabel);
         payload.put("requiresStaffConfirmation", order.isRequiresStaffConfirmation());
+        payload.put("placedAt", order.getPlacedAt().toString());
         payload.put("lines", lineMaps);
 
         outboxWriter.append(new OrderPlacedEvent(DomainEvent.newEventId(), order.getId(), order.getStoreId(),
-                order.getSessionId(), now, payload));
+                null, now, payload));
     }
 
     private static Order toDto(CustomerOrder order, List<OrderLine> lines,

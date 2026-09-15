@@ -356,8 +356,9 @@ export interface paths {
         put?: never;
         /**
          * Báo hết nguyên liệu
-         * @description Ẩn mọi món dùng nguyên liệu này khỏi thực đơn khách trong ≤ 2 giây, và phát
-         *     sự kiện cảnh báo cho các đơn đang chờ có chứa món bị ảnh hưởng — `EC-04`.
+         * @description Vô hiệu hoá mọi món dùng nguyên liệu này trên thực đơn khách trong ≤ 2 giây;
+         *     client vẫn hiển thị món ở trạng thái mờ với nhãn "Tạm hết". Đồng thời phát sự
+         *     kiện cảnh báo cho các đơn đang chờ có chứa món bị ảnh hưởng — `EC-04`.
          */
         post: operations["markIngredientSoldOut"];
         delete?: never;
@@ -536,6 +537,10 @@ export interface components {
                 newUnitPrice?: components["schemas"]["Money"];
             }[];
         };
+        VersionConflictProblem: components["schemas"]["Problem"] & {
+            /** @description Trạng thái mới nhất để client tự làm mới và giải quyết hàng đợi ngoại tuyến. */
+            current: components["schemas"]["OrderLine"];
+        };
         /**
          * @description Tiền luôn là **số nguyên đơn vị đồng**. Không dùng số thực ở bất kỳ đâu
          *     trong hệ thống, kể cả khi hiển thị.
@@ -712,6 +717,8 @@ export interface components {
              *     ]
              */
             optionNames?: string[];
+            /** @description Nguyên liệu của biến thể và các tuỳ chọn đã chọn; chỉ điền trên KDS. */
+            ingredients?: components["schemas"]["IngredientRef"][];
             quantity: number;
             /** @description Chỉ có ở **đáp ứng**. Không bao giờ chấp nhận ở request. */
             unitPrice?: components["schemas"]["Money"];
@@ -733,7 +740,22 @@ export interface components {
             /** @description Ngưỡng cảnh báo, mặc định 480 giây — `FR-BAR-04`. */
             slaSeconds: number;
             isOverdue?: boolean;
+            /** @description Đơn đầu của phiên lạ phải được nhân viên xác nhận trước khi pha (`EC-03`). */
+            requiresStaffConfirmation: boolean;
             lines: components["schemas"]["OrderLine"][];
+        };
+        IngredientRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            soldOut: boolean;
+        };
+        IngredientSoldOutResult: {
+            /** Format: uuid */
+            ingredientId: string;
+            ingredientName: string;
+            affectedItemIds: string[];
+            affectedOpenOrderIds: string[];
         };
         TableState: {
             /** Format: uuid */
@@ -1053,6 +1075,8 @@ export interface operations {
                     "application/problem+json": components["schemas"]["PriceChangedProblem"];
                 };
             };
+            /** @description `IDEMPOTENCY_KEY_REUSED` — khoá đã dùng cho một yêu cầu khác nội dung. */
+            422: components["responses"]["Problem"];
             /** @description `ORDER_RATE_LIMITED` — vượt hạn mức 3 đơn / 5 phút / phiên. */
             429: components["responses"]["RateLimited"];
         };
@@ -1251,7 +1275,10 @@ export interface operations {
                 /** @description Lọc theo trạm pha chế. */
                 station?: "COFFEE" | "TEA" | "FOOD" | "ALL";
             };
-            header?: never;
+            header: {
+                /** @description Chi nhánh đang hoạt động trên màn hình KDS; phải thuộc phạm vi token nhân viên. */
+                "X-Store-Id": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1281,6 +1308,10 @@ export interface operations {
             header: {
                 /** @description Giá trị `version` của dòng đơn mà client đang thấy. */
                 "If-Match": string;
+                /** @description Chi nhánh đang hoạt động; dòng đơn phải thuộc đúng chi nhánh này. */
+                "X-Store-Id": string;
+                /** @description UUID bền vững của màn hình KDS, ghi vào nhật ký chuyển trạng thái (`EC-06`). */
+                "X-Device-Id": string;
             };
             path: {
                 lineId: string;
@@ -1291,7 +1322,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    status: "PREPARING" | "READY" | "SERVED" | "CANCELLED";
+                    status: "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "CANCELLED";
                     /** @description Bắt buộc khi `status = CANCELLED`. */
                     reason?: string;
                 };
@@ -1308,7 +1339,14 @@ export interface operations {
                 };
             };
             /** @description `VERSION_CONFLICT` — người khác vừa cập nhật; phần mở rộng `current` chứa bản mới nhất. */
-            409: components["responses"]["Problem"];
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["VersionConflictProblem"];
+                };
+            };
             /** @description `INVALID_TRANSITION` */
             422: components["responses"]["Problem"];
         };
@@ -1316,7 +1354,10 @@ export interface operations {
     markIngredientSoldOut: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Chi nhánh đang hoạt động; phải nằm trong claim `stores` của staff JWT. */
+                "X-Store-Id": string;
+            };
             path: {
                 ingredientId: string;
             };
@@ -1330,12 +1371,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        affectedItemIds?: string[];
-                        affectedOpenOrderIds?: string[];
-                    };
+                    "application/json": components["schemas"]["IngredientSoldOutResult"];
                 };
             };
+            /** @description Nguyên liệu không thuộc chi nhánh hoặc nhân viên không có quyền trong chi nhánh. */
+            404: components["responses"]["Problem"];
         };
     };
     listTables: {

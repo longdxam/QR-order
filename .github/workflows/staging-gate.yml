@@ -1,0 +1,103 @@
+name: Staging gate M1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-gate-m1
+  cancel-in-progress: false
+
+jobs:
+  security:
+    name: Security regressions for M1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # TM-QR-01, TM-QR-02 và TM-ORD-01: giữ các lớp bảo vệ của luồng QR → đặt món
+      # xanh trước khi đánh dấu cổng staging đạt.
+      - name: Run M1 security regressions
+        run: >-
+          ./gradlew :backend:test --no-daemon
+          --tests com.qros.security.QrForgeryTest
+          --tests com.qros.security.QrReplayTest
+          --tests com.qros.security.PriceTamperingTest
+
+  e2e:
+    name: QR to SERVED (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    env:
+      QROS_GUEST_URL: ${{ secrets.QROS_GUEST_URL }}
+      QROS_STAFF_URL: ${{ secrets.QROS_STAFF_URL }}
+      QROS_E2E_TABLE_CODE: ${{ secrets.QROS_E2E_TABLE_CODE }}
+      QROS_E2E_STORE_ID: ${{ secrets.QROS_E2E_STORE_ID }}
+      QROS_E2E_STAFF_EMAIL: ${{ secrets.QROS_E2E_STAFF_EMAIL }}
+      QROS_E2E_STAFF_PASSWORD: ${{ secrets.QROS_E2E_STAFF_PASSWORD }}
+      QROS_E2E_STAFF_TOTP: ${{ secrets.QROS_E2E_STAFF_TOTP }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Install E2E dependencies
+        run: npm ci --prefix e2e
+
+      - name: Install ${{ matrix.browser }}
+        run: npx --prefix e2e playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run QR to SERVED
+        run: npx --prefix e2e playwright test --project=${{ matrix.browser }}
+
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.browser }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  load:
+    name: k6 menu and ordering
+    needs: [security, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    env:
+      QROS_API_URL: ${{ secrets.QROS_API_URL }}
+      QROS_TABLE_CODE: ${{ secrets.QROS_E2E_TABLE_CODE }}
+      QROS_MENU_ITEM_ID: ${{ secrets.QROS_E2E_MENU_ITEM_ID }}
+      QROS_VARIANT_ID: ${{ secrets.QROS_E2E_VARIANT_ID }}
+      QROS_OPTION_ID: ${{ secrets.QROS_E2E_OPTION_ID }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Run menu revalidation load gate
+        uses: grafana/setup-k6-action@v1
+
+      - run: k6 run load/menu.js
+
+      - name: Run order load gate
+        run: k6 run load/orders.js

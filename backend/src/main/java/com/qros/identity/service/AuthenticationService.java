@@ -152,6 +152,7 @@ public class AuthenticationService {
         // FR-AUTH-05: token cũ cầm token_version cũ bị CookieSessionAuthenticationFilter từ chối.
         claims.put("tv", user.getTokenVersion());
         claims.put("stores", storesOf(user));
+        claims.put("permissions", userRoleRepository.findPermissionsByUserId(user.getId()));
         // FR-AUTH-02: MfaEnforcementFilter đọc claim này để chặn ghi.
         claims.put("mfaBlocked", canRequireMfa(roleCodes) && !user.isMfaEnabled());
         return claims;

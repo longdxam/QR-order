@@ -1,5 +1,6 @@
 package com.qros.ordering.domain;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -9,12 +10,19 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
 import com.qros.shared.id.UuidV7;
+import com.qros.shared.error.ErrorCode;
+import com.qros.shared.error.QrosException;
 
 @Entity
 @Table(name = "order_line")
 public class OrderLine {
 
     public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_CONFIRMED = "CONFIRMED";
+    public static final String STATUS_PREPARING = "PREPARING";
+    public static final String STATUS_READY = "READY";
+    public static final String STATUS_SERVED = "SERVED";
+    public static final String STATUS_CANCELLED = "CANCELLED";
 
     @Id
     @Column(name = "id", nullable = false)
@@ -56,6 +64,12 @@ public class OrderLine {
     @Column(name = "status", nullable = false)
     private String status;
 
+    @Column(name = "started_at")
+    private Instant startedAt;
+
+    @Column(name = "ready_at")
+    private Instant readyAt;
+
     @Version
     @Column(name = "version", nullable = false)
     private int version;
@@ -93,6 +107,10 @@ public class OrderLine {
 
     public UUID getMenuItemId() {
         return menuItemId;
+    }
+
+    public UUID getMenuVariantId() {
+        return menuVariantId;
     }
 
     public String getItemName() {
@@ -133,5 +151,50 @@ public class OrderLine {
 
     public int getVersion() {
         return version;
+    }
+
+    /**
+     * Máy trạng thái đóng của một món. {@code CANCELLED} có thể thắng mọi trạng thái chưa kết thúc để
+     * phép hợp nhất thao tác ngoại tuyến của KDS là xác định; mọi bước tiến khác phải đi đúng một nấc.
+     */
+    public void chuyenTrangThai(String target, String reason, Instant now) {
+        if (STATUS_CANCELLED.equals(target)) {
+            if (STATUS_CANCELLED.equals(status)) {
+                tuChoiChuyen(target);
+            }
+            if (reason == null || reason.isBlank()) {
+                throw new QrosException(ErrorCode.REASON_REQUIRED,
+                        "Cần nêu lý do khi huỷ món");
+            }
+            status = STATUS_CANCELLED;
+            return;
+        }
+
+        String expected = switch (status) {
+            case STATUS_PENDING -> STATUS_CONFIRMED;
+            case STATUS_CONFIRMED -> STATUS_PREPARING;
+            case STATUS_PREPARING -> STATUS_READY;
+            case STATUS_READY -> STATUS_SERVED;
+            default -> null;
+        };
+        if (!target.equals(expected)) {
+            tuChoiChuyen(target);
+        }
+
+        status = target;
+        if (STATUS_PREPARING.equals(target)) {
+            startedAt = now;
+        } else if (STATUS_READY.equals(target)) {
+            readyAt = now;
+        }
+    }
+
+    public void xacNhanTuDong(Instant now) {
+        chuyenTrangThai(STATUS_CONFIRMED, null, now);
+    }
+
+    private void tuChoiChuyen(String target) {
+        throw new QrosException(ErrorCode.INVALID_TRANSITION,
+                "Không thể chuyển món từ %s sang %s".formatted(status, target));
     }
 }

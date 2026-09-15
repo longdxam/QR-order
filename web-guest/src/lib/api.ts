@@ -6,6 +6,8 @@ export type StartSessionRequest = components["schemas"]["StartSessionRequest"];
 export type StartSessionByCodeRequest = components["schemas"]["StartSessionByCodeRequest"];
 export type Menu = components["schemas"]["Menu"];
 export type MenuItem = components["schemas"]["MenuItem"];
+export type CreateOrderRequest = components["schemas"]["CreateOrderRequest"];
+export type Order = components["schemas"]["Order"];
 
 /**
  * Lỗi RFC 7807 từ máy chủ — bất biến số 4 của repo: mọi lỗi đều có {@code code}/{@code traceId}.
@@ -60,7 +62,7 @@ export async function getMenu(
   if (etag) {
     headers["If-None-Match"] = etag;
   }
-  const response = await fetch("/api/v1/guest/menu", { headers });
+  const response = await fetch("/api/v1/guest/menu", { headers, cache: "no-cache" });
 
   if (response.status === 304) {
     return null;
@@ -69,4 +71,36 @@ export async function getMenu(
     throw new ApiProblemError((await response.json()) as Problem);
   }
   return { menu: (await response.json()) as Menu, etag: response.headers.get("ETag") };
+}
+
+/** Đặt món với khoá UUIDv4 do client giữ qua mọi lần retry (`FR-CUS-08`, `FR-CUS-09`). */
+export async function placeOrder(
+  accessToken: string,
+  idempotencyKey: string,
+  request: CreateOrderRequest,
+): Promise<Order> {
+  const response = await fetch("/api/v1/guest/orders", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new ApiProblemError((await response.json()) as Problem);
+  }
+  return (await response.json()) as Order;
+}
+
+/** Đọc lại đơn thuộc đúng phiên hiện tại; server trả 404 nếu đơn thuộc phiên khác. */
+export async function getOrder(accessToken: string, orderId: string): Promise<Order> {
+  const response = await fetch(`/api/v1/guest/orders/${encodeURIComponent(orderId)}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new ApiProblemError((await response.json()) as Problem);
+  }
+  return (await response.json()) as Order;
 }

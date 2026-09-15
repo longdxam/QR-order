@@ -1,16 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    Log JSON có cấu trúc — NFR-OBS-03. Mọi dòng có correlationId (luôn có, CorrelationIdFilter đặt
-    từ BL-M0-04) và actorId khi có (CookieSessionAuthenticationFilter đặt sau khi xác thực thành
-    công, BL-M0-11). storeId chưa đặt được ở đây: JWT staff/admin mang một DANH SÁCH chi nhánh
-    (claim stores), không phải một chi nhánh đang hoạt động cho request này — cần một quyết định
-    UX (header? tham số đường dẫn?) chưa có, xem OPEN-10 trong docs/backlog.md.
+    Log JSON có cấu trúc — NFR-OBS-03. CorrelationIdFilter đặt correlationId cho mọi request.
+    CookieSessionAuthenticationFilter đặt actorId sau khi xác thực staff/admin. StoreMdcFilter chỉ
+    đặt storeId sau khi X-Store-Id là UUID chuẩn và thuộc claim stores của JWT; cả ba giá trị được
+    dọn sau request để thread tái sử dụng không mang nhầm ngữ cảnh.
 
-    Trường message đi qua MaskedMessageJsonProvider — không phải MessageJsonProvider mặc định —
-    nên bị che mật khẩu/token/PII bất kể lập trình viên viết gì vào đó.
+    Trường message đi qua MaskedMessageJsonProvider, không phải MessageJsonProvider mặc định, nên
+    mật khẩu, token và PII bị che bất kể lập trình viên viết gì vào message.
 
-    Cùng một cấu hình cho mọi profile: log JSON là thứ cần đúng ngay cả ở dev/test, không phải thứ
-    chỉ bật lúc lên production rồi mới biết có đúng hay không.
+    Cùng một cấu hình cho mọi profile: log JSON phải đúng ở cả dev/test, không chỉ production.
 -->
 <configuration>
     <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">

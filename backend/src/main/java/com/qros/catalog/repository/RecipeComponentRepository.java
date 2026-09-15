@@ -11,4 +11,6 @@ import com.qros.catalog.domain.RecipeComponentId;
 public interface RecipeComponentRepository extends JpaRepository<RecipeComponent, RecipeComponentId> {
 
     List<RecipeComponent> findByMenuVariantIdIn(List<UUID> menuVariantIds);
+
+    List<RecipeComponent> findByIngredientId(UUID ingredientId);
 }

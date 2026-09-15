@@ -1,6 +1,7 @@
 package com.qros.catalog.api;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -18,4 +19,10 @@ public interface CatalogFacade {
      *         lỗi client (dữ liệu không khớp thực đơn thật), không phụ thuộc ai gọi vào.
      */
     PricedLine priceLine(UUID storeId, UUID menuItemId, UUID variantId, List<UUID> optionChoiceIds);
+
+    /** Tìm toàn bộ món/biến thể/tuỳ chọn chịu ảnh hưởng, đồng thời kiểm tra quyền sở hữu chi nhánh. */
+    IngredientImpact ingredientImpact(UUID storeId, UUID ingredientId);
+
+    /** Nguyên liệu thực sự được dùng bởi một dòng đơn, để KDS cho barista chọn đúng nguyên liệu. */
+    Map<UUID, List<IngredientView>> ingredientsFor(UUID storeId, List<RecipeSelection> selections);
 }

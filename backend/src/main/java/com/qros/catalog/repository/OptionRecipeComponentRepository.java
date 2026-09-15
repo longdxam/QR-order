@@ -12,4 +12,6 @@ public interface OptionRecipeComponentRepository
         extends JpaRepository<OptionRecipeComponent, OptionRecipeComponentId> {
 
     List<OptionRecipeComponent> findByOptionChoiceIdIn(List<UUID> optionChoiceIds);
+
+    List<OptionRecipeComponent> findByIngredientId(UUID ingredientId);
 }

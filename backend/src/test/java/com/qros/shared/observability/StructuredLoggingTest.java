@@ -40,6 +40,7 @@ class StructuredLoggingTest {
     @SuppressWarnings("unchecked")
     void log_cheMatKhauTokenPii_vaMangDuTruongBatBuoc() {
         MDC.put("correlationId", "test-correlation-nfr-obs-03");
+        MDC.put("storeId", "0198f0a1-4b2c-7def-8123-456789abcdef");
         try {
             Encoder<ILoggingEvent> encoder = consoleJsonEncoder();
 
@@ -60,9 +61,11 @@ class StructuredLoggingTest {
 
             assertThat(parsed).containsEntry("level", "INFO")
                     .containsEntry("logger_name", rootLogger().getName())
-                    .containsEntry("correlationId", "test-correlation-nfr-obs-03");
+                    .containsEntry("correlationId", "test-correlation-nfr-obs-03")
+                    .containsEntry("storeId", "0198f0a1-4b2c-7def-8123-456789abcdef");
         } finally {
             MDC.remove("correlationId");
+            MDC.remove("storeId");
         }
     }
 

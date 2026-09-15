@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: QROS — Realtime Event Contract
-  version: 1.0.0
+  version: 1.1.0
   contact:
     name: QROS Engineering
     url: https://qros.example.com
@@ -39,7 +39,7 @@ servers:
   production:
     host: api.qros.example.com
     protocol: wss
-    pathname: /ws
+    pathname: /api/v1/staff/ws
     description: |
       Bắt tay bằng token phiên. Web khách dùng JWS phiên bàn; nhân viên dùng cookie phiên.
       Kết nối lại theo lùi cấp số nhân, có nhiễu ngẫu nhiên, tối đa 30 giây.
@@ -48,7 +48,7 @@ servers:
   local:
     host: localhost:8080
     protocol: ws
-    pathname: /ws
+    pathname: /api/v1/staff/ws
 
 channels:
 
@@ -85,6 +85,10 @@ channels:
     messages:
       orderStatusChanged:
         $ref: '#/components/messages/OrderStatusChanged'
+      orderLineStatusChanged:
+        $ref: '#/components/messages/OrderLineStatusChanged'
+      orderCancelled:
+        $ref: '#/components/messages/OrderCancelled'
       itemUnavailable:
         $ref: '#/components/messages/ItemUnavailable'
       groupCartUpdated:
@@ -130,6 +134,16 @@ channels:
       resume:
         $ref: '#/components/messages/ResumeRequest'
 
+  resumeStream:
+    address: /user/queue/resume
+    title: Kết quả phát bù cho đúng kết nối vừa yêu cầu
+    description: |
+      Máy chủ phát từng sự kiện còn trong bộ đệm vào đây. Nếu mốc `lastSeq` cũ hơn cửa sổ
+      15 phút, phát `ResyncRequired` để client tải lại `GET /staff/kds/queue`.
+    messages:
+      resyncRequired:
+        $ref: '#/components/messages/ResyncRequired'
+
 operations:
 
   publishKdsEvents:
@@ -153,6 +167,8 @@ operations:
     description: Mỗi phiên chỉ nhận sự kiện thuộc đúng bàn và các thiết bị đã tham gia phiên đó.
     messages:
       - $ref: '#/channels/guestStream/messages/orderStatusChanged'
+      - $ref: '#/channels/guestStream/messages/orderLineStatusChanged'
+      - $ref: '#/channels/guestStream/messages/orderCancelled'
       - $ref: '#/channels/guestStream/messages/itemUnavailable'
       - $ref: '#/channels/guestStream/messages/groupCartUpdated'
       - $ref: '#/channels/guestStream/messages/participantJoined'
@@ -178,6 +194,13 @@ operations:
       $ref: '#/channels/resumeRequest'
     summary: Máy chủ nhận yêu cầu phát lại sau khi client kết nối lại
     description: Dùng `lastSeq` để phát bù hoặc yêu cầu client đồng bộ lại toàn bộ trạng thái.
+
+  publishResumeResults:
+    action: send
+    channel:
+      $ref: '#/channels/resumeStream'
+    summary: Phát bù riêng cho kết nối KDS vừa nối lại
+    description: Phát các sự kiện còn trong cửa sổ 15 phút hoặc yêu cầu tải lại hàng đợi REST.
 
 components:
 
@@ -297,6 +320,12 @@ components:
       title: Yêu cầu phát lại
       payload:
         $ref: '#/components/schemas/ResumeRequestPayload'
+
+    ResyncRequired:
+      name: ResyncRequired
+      title: Mốc phát lại đã quá cũ
+      payload:
+        $ref: '#/components/schemas/ResyncRequiredPayload'
 
   schemas:
 
@@ -576,4 +605,13 @@ components:
             properties:
               address: { type: string, examples: ['/topic/kds/{storeId}'] }
               lastSeq: { type: integer, format: int64 }
+      additionalProperties: false
+
+    ResyncRequiredPayload:
+      type: object
+      required: [type, address]
+      properties:
+        type: { type: string, const: ResyncRequired }
+        address: { type: string }
+        reason: { type: string, const: BUFFER_EXPIRED }
       additionalProperties: false

@@ -14,4 +14,6 @@ public interface MenuItemRepository extends JpaRepository<MenuItemEntity, UUID> 
 
     /** Bất biến số 7: kiểm quyền sở hữu ở cấp đối tượng — chỉ trả về nếu đúng chi nhánh trong phiên. */
     Optional<MenuItemEntity> findByIdAndStoreId(UUID id, UUID storeId);
+
+    List<MenuItemEntity> findByIdInAndStoreId(List<UUID> ids, UUID storeId);
 }

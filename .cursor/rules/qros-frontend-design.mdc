@@ -1,0 +1,21 @@
+---
+description: Quy tắc thiết kế và triển khai frontend QROS bằng Next.js, React và TypeScript.
+globs: ["web-*/**/*.tsx", "web-*/**/*.ts", "web-*/**/*.css", "packages/ui/**/*"]
+alwaysApply: false
+---
+
+# QROS frontend
+
+- Viết TypeScript chặt chẽ, component hàm, tên mô tả rõ và handler bắt đầu bằng `handle`.
+- Ưu tiên Server Component; chỉ thêm `use client` cho tương tác hoặc Web API thực sự cần ở client.
+- Component phải hoàn chỉnh, responsive, có loading/empty/error/offline state và không để TODO giả.
+- Dùng HTML semantic, label trước ARIA, focus ring nhìn rõ, tap target tối thiểu 44px, tương phản WCAG AA.
+- Tôn trọng `prefers-reduced-motion`; trạng thái không bao giờ chỉ được truyền bằng màu.
+- Giao diện phải yên, đáng tin và quét nhanh: một accent chính; màu khác chỉ mang nghĩa semantic.
+- Dùng thang xám cho cấu trúc, typography có vai trò rõ, số liệu nổi hơn đơn vị, không dùng pure black.
+- Dùng spacing/radius token nhất quán; giữ nội dung liên quan gần nhau và tách nhóm bằng khoảng trắng.
+- Chỉ dùng card khi cần gom một nhóm nội dung; tránh nested card, border dày, shadow mạnh và gradient trang trí.
+- Giữ thay đổi nhỏ, dễ test; dùng type sinh từ OpenAPI và không viết lại contract bằng type thủ công.
+
+Nguồn định hướng: `sharkqwy/v0prompt` và các rule Next.js/Toss-style trong
+`PatrickJS/awesome-cursorrules`; quy tắc project này thắng khi nguồn tham khảo mâu thuẫn kiến trúc QROS.

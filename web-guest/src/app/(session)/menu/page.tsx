@@ -1,19 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { AddToCartDialog } from "@/components/AddToCartDialog";
 import { ApiProblemError, getMenu, type Menu, type MenuItem } from "@/lib/api";
-import { loadGuestSession } from "@/lib/guestSession";
+import { loadCart, subscribeCartChanged } from "@/lib/cart";
+import { loadGuestSession, type TableSession } from "@/lib/guestSession";
 import { khopTimKiem } from "@/lib/vietnameseSearch";
-
-const NHAN_DI_UNG: Record<string, string> = {
-  MILK: "Sữa",
-  PEANUT: "Đậu phộng",
-  GLUTEN: "Gluten",
-  SOY: "Đậu nành",
-  EGG: "Trứng",
-  NUTS: "Hạt",
-};
 
 const NHAN_THUOC_TINH: Record<string, string> = {
   DAIRY_FREE: "Không sữa",
@@ -35,30 +29,62 @@ export default function TrangThucDon() {
   const [tuKhoa, setTuKhoa] = useState("");
   const [thuocTinhLoc, setThuocTinhLoc] = useState<string | null>(null);
   const [monDangXem, setMonDangXem] = useState<MenuItem | null>(null);
+  const [phien, setPhien] = useState<TableSession | null>(null);
+  const [soMonTrongGio, setSoMonTrongGio] = useState(0);
 
   useEffect(() => {
     let huy = false;
+    let dangTai = false;
+    let daCoMenu = false;
+    let etag: string | undefined;
     async function tai() {
+      if (dangTai) return;
       const phien = loadGuestSession();
       if (!phien) return;
+      dangTai = true;
+      setPhien(phien);
       try {
-        const ketQua = await getMenu(phien.accessToken);
+        const ketQua = await getMenu(phien.accessToken, etag);
         if (huy || !ketQua) return;
+        etag = ketQua.etag ?? undefined;
+        daCoMenu = true;
         setTrangThai({ buoc: "xong", menu: ketQua.menu });
       } catch (error) {
-        if (huy) return;
+        if (huy || daCoMenu) return;
         setTrangThai({
           buoc: "loi",
           thongDiep: error instanceof ApiProblemError ? (error.problem.detail ?? error.problem.title)
               : "Không tải được thực đơn, vui lòng thử lại.",
         });
+      } finally {
+        dangTai = false;
       }
     }
     void tai();
+    // FR-BAR-05: ETag giữ payload rỗng khi không đổi; nhịp một giây bảo đảm món chuyển
+    // sang "Tạm hết" trong cửa sổ hai giây mà không cần đưa guest JWT vào URL WebSocket.
+    const timer = window.setInterval(() => void tai(), 1_000);
     return () => {
       huy = true;
+      window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!phien) return;
+    let active = true;
+    const refresh = () => {
+      void loadCart(phien.sessionId).then((cart) => {
+        if (active) setSoMonTrongGio(cart.lines.reduce((sum, line) => sum + line.quantity, 0));
+      });
+    };
+    refresh();
+    const unsubscribe = subscribeCartChanged(phien.sessionId, refresh);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [phien]);
 
   const tatCaThuocTinh = useMemo(() => {
     if (trangThai.buoc !== "xong") return [];
@@ -84,6 +110,10 @@ export default function TrangThucDon() {
 
   return (
     <main style={{ padding: "1rem", maxWidth: "40rem", margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.8rem" }}>
+        <h1 style={{ fontSize: "1.25rem", margin: 0 }}>Thực đơn</h1>
+        <Link href="/cart" style={{ color: "inherit", fontWeight: 650 }}>Giỏ hàng ({soMonTrongGio})</Link>
+      </div>
       <input
         value={tuKhoa}
         onChange={(e) => setTuKhoa(e.target.value)}
@@ -119,6 +149,8 @@ export default function TrangThucDon() {
             {danhMuc.items.map((mon) => (
               <button
                 key={mon.id}
+                disabled={!mon.available}
+                aria-label={mon.available ? `Chọn ${mon.name}` : `${mon.name} tạm hết`}
                 onClick={() => setMonDangXem(mon)}
                 style={{
                   display: "flex",
@@ -143,56 +175,16 @@ export default function TrangThucDon() {
         </section>
       ))}
 
-      {monDangXem && <ChiTietMon mon={monDangXem} dong={() => setMonDangXem(null)} />}
+      {monDangXem && phien && (
+        <AddToCartDialog
+          sessionId={phien.sessionId}
+          addedBy={phien.participants?.find((participant) => participant.isSelf)?.nickname}
+          item={monDangXem}
+          onClose={() => setMonDangXem(null)}
+          onAdded={() => setMonDangXem(null)}
+        />
+      )}
     </main>
-  );
-}
-
-function ChiTietMon({ mon, dong }: { mon: MenuItem; dong: () => void }) {
-  return (
-    <div
-      onClick={dong}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
-        display: "flex", alignItems: "flex-end",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: "light-dark(#fff,#222)", width: "100%", padding: "1.5rem", borderRadius: "1rem 1rem 0 0", maxHeight: "80vh", overflowY: "auto" }}
-      >
-        <h2 style={{ marginTop: 0 }}>{mon.name}</h2>
-        {mon.description && <p style={{ color: "#666" }}>{mon.description}</p>}
-        {!mon.available && <p style={{ color: "#c00" }}>Tạm hết — quay lại sau nhé.</p>}
-        {mon.allergens && mon.allergens.length > 0 && (
-          <p>⚠ Dị ứng: {mon.allergens.map((a) => NHAN_DI_UNG[a] ?? a).join(", ")}</p>
-        )}
-        <h3 style={{ fontSize: "0.9rem" }}>Kích cỡ</h3>
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {mon.variants.map((v) => (
-            <li key={v.id} style={{ display: "flex", justifyContent: "space-between", padding: "0.4rem 0", opacity: v.available === false ? 0.5 : 1 }}>
-              <span>{v.name}{v.available === false ? " (tạm hết)" : ""}</span>
-              <span>{formatTien(v.price.amount)}</span>
-            </li>
-          ))}
-        </ul>
-        {mon.optionGroups?.map((nhom) => (
-          <div key={nhom.id} style={{ marginTop: "0.75rem" }}>
-            <h3 style={{ fontSize: "0.9rem" }}>{nhom.name}</h3>
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              {nhom.options.map((o) => (
-                <li key={o.id} style={{ display: "flex", justifyContent: "space-between", padding: "0.3rem 0", opacity: o.available === false ? 0.5 : 1 }}>
-                  <span>{o.name}</span>
-                  <span>{o.surcharge.amount > 0 ? `+${formatTien(o.surcharge.amount)}` : ""}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-        <p style={{ color: "#666", marginTop: "1rem" }}>Đặt món đang được xây dựng, quay lại sau nhé.</p>
-        <button onClick={dong} style={{ marginTop: "0.5rem", padding: "0.6rem 1rem" }}>Đóng</button>
-      </div>
-    </div>
   );
 }
 

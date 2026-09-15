@@ -1,6 +1,7 @@
 package com.qros.ordering.domain;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -23,6 +24,10 @@ import com.qros.shared.id.UuidV7;
 public class CustomerOrder {
 
     public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_CONFIRMED = "CONFIRMED";
+    public static final String STATUS_PREPARING = "PREPARING";
+    public static final String STATUS_READY = "READY";
+    public static final String STATUS_SERVED = "SERVED";
     public static final String STATUS_CANCELLED = "CANCELLED";
 
     @Id
@@ -99,6 +104,10 @@ public class CustomerOrder {
         return sessionId;
     }
 
+    public UUID getTableId() {
+        return tableId;
+    }
+
     public String getShortCode() {
         return shortCode;
     }
@@ -131,6 +140,15 @@ public class CustomerOrder {
         return version;
     }
 
+    /** Đơn không thuộc trường hợp EC-03 được đưa thẳng vào hàng pha chế. */
+    public void xacNhanTuDong() {
+        if (!STATUS_PENDING.equals(status) || requiresStaffConfirmation) {
+            throw new QrosException(ErrorCode.INVALID_TRANSITION,
+                    "Đơn này không thể tự động xác nhận");
+        }
+        status = STATUS_CONFIRMED;
+    }
+
     /** {@code FR-CUS-08} kịch bản huỷ: chỉ chấp nhận khi đơn còn {@code PENDING}. */
     public void huyBoiKhach() {
         if (!STATUS_PENDING.equals(status)) {
@@ -139,5 +157,37 @@ public class CustomerOrder {
         }
         this.status = STATUS_CANCELLED;
         this.cancelReason = "Khách tự huỷ";
+    }
+
+    /**
+     * Đồng bộ trạng thái tổng từ các dòng món. Dòng chậm nhất còn hoạt động quyết định trạng thái đơn;
+     * các dòng đã huỷ không kéo lùi tiến trình, còn tất cả cùng huỷ thì đơn mới thành {@code CANCELLED}.
+     */
+    public boolean dongBoTrangThaiDong(List<String> lineStatuses) {
+        if (lineStatuses.isEmpty()) return false;
+        List<String> active = lineStatuses.stream()
+                .filter(lineStatus -> !OrderLine.STATUS_CANCELLED.equals(lineStatus))
+                .toList();
+        String next = active.isEmpty() ? STATUS_CANCELLED : active.stream()
+                .min((left, right) -> Integer.compare(thuTu(left), thuTu(right)))
+                .orElseThrow();
+        requiresStaffConfirmation = STATUS_PENDING.equals(next);
+        if (STATUS_CANCELLED.equals(next) && cancelReason == null) {
+            cancelReason = "Tất cả món trong đơn đã bị huỷ";
+        }
+        if (status.equals(next)) return false;
+        status = next;
+        return true;
+    }
+
+    private static int thuTu(String status) {
+        return switch (status) {
+            case STATUS_PENDING -> 0;
+            case STATUS_CONFIRMED -> 1;
+            case STATUS_PREPARING -> 2;
+            case STATUS_READY -> 3;
+            case STATUS_SERVED -> 4;
+            default -> throw new IllegalArgumentException("Trạng thái dòng không hợp lệ: " + status);
+        };
     }
 }

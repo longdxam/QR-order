@@ -139,7 +139,7 @@ Rủi ro tồn dư là đánh giá sau khi toàn bộ biện pháp và kiểm th
 | `TM-AI-01` | `security/PromptInjectionTest` — không lộ prompt, tool ngoài allowlist bị chặn | Unit + Integration | Kế hoạch |
 | `TM-AI-02` | `security/AiEgressFilterTest` — field ngoài allowlist và PII không rời `aigateway` | Unit + contract | Kế hoạch |
 | `TM-AI-03` | `security/AiResourceLimitTest` — token/lượt/tần suất/ngân sách | Integration + k6 | Kế hoạch |
-| `TM-EVT-01` | `integration/OutboxDeliveryTest` và `e2e/kds-concurrency.spec.ts` | Integration + E2E | Một phần: integration xanh 13/09/2026 (PostgreSQL 16 + Redis 7 qua Testcontainers 2.0.5); E2E chờ `BL-M1-04` |
+| `TM-EVT-01` | `integration/OutboxDeliveryTest`, `ordering/KdsOptimisticLockingTest`, `realtime/KdsRealtimeTest` và `web-staff/src/lib/offline.test.mjs` | Integration + WebSocket + unit client | Xanh 15/09/2026: outbox nguyên tử/at-least-once; 50 cập nhật đồng thời chỉ một lượt thắng; STOMP thật resume theo `seq` và live dưới 1 giây; client dedupe/merge/replay offline |
 | `TM-OPS-01` | gitleaks, Trivy, secret-pattern test trên image/artifact | CI | Một phần: `.github/workflows/security.yml` hợp lệ theo actionlint 1.7.12 (14/09/2026), image dựng và chạy thật qua `Dockerfile`, SBOM CycloneDX 1.6 sinh thật (221 thành phần) — workflow GitHub chưa chạy được thật vì workspace chưa có `.git` (`BL-M0-12`) |
 | `TM-OPS-02` | `security/ErrorDisclosureTest` và kiểm thử security header/Actuator | Integration + DAST | Một phần: integration xanh 14/09/2026 (Tomcat thật, PostgreSQL 16 qua Testcontainers 2.0.5, Java 25, Gradle 9.1.0) — phủ cả ba nhánh của biện pháp bắt buộc (Actuator ở cổng nội bộ, RFC 7807, security headers); DAST (ZAP) chưa chạy, chưa có thẻ backlog nào sở hữu |
 

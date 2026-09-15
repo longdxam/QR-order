@@ -10,10 +10,10 @@ Sprint 0 đã có **SDD + ERD + Flyway V1 + threat model + backlog** và Gradle 
 đe doạ STRIDE, ranh giới tin cậy, rủi ro tồn dư và ánh xạ mỗi mối đe doạ tới ít nhất một test tự động.
 Các test mang trạng thái `Kế hoạch` chưa được tính là đã kiểm chứng.
 
-Backlog `BACKLOG-QROS-001` đã được baseline cùng ngày tại `docs/backlog.md`. Năm thẻ Sprint 0
-`BL-S0-01`…`05`, mười ba thẻ M0 `BL-M0-01`…`13` đã hoàn tất; chỉ còn `BL-M0-14` (cổng thoát M0)
-trước khi sang M1. Thẻ triển khai tiếp theo là `BL-M0-14`: E2E login→MFA→quyền ghi→audit/trace,
-CI đủ cổng, diễn tập runbook sự cố đăng nhập.
+Backlog `BACKLOG-QROS-001` đã được baseline cùng ngày tại `docs/backlog.md`. Sprint 0 và M0 đã hoàn
+tất; năm lát dọc đầu M1 (`BL-M1-01`…`05`: QR/phiên bàn, thực đơn, giỏ/đặt món, KDS realtime,
+hết nguyên liệu lan toả) cũng đã hoàn tất. Thẻ triển khai tiếp theo là `BL-M1-06`: cổng thoát M1
+trên staging, gồm E2E Chromium/WebKit, k6 và các test security liên quan.
 
 `BL-M0-01` hoàn tất ngày 10/09/2026:
 
@@ -724,9 +724,9 @@ thật rồi gọi lại — `available:false` xuất hiện ngay lập tức tr
 (gõ tìm kiếm, bấm lọc, mở chi tiết món) trên trang `/menu` **chưa được xác nhận** ngoài việc build/
 lint/typecheck sạch và API nó gọi hoạt động đúng — cùng giới hạn đã ghi ở `BL-M1-01`.
 
-`BL-M1-03` (giỏ offline và đặt món) **đang làm dở** ngày 14/09/2026 — phần backend (`ordering/`)
-xong và kiểm chứng thật; phần frontend (giỏ hàng IndexedDB, trang đặt món) **chưa có dòng code
-nào**, ghi `OPEN-18`. Đây là thẻ nhạy cảm nhất của toàn bộ hợp đồng (`ADR-06`):
+`BL-M1-03` (giỏ offline và đặt món) **hoàn tất** ngày 15/09/2026 — backend (`ordering/`) hoàn tất
+và kiểm chứng thật ngày 14/09; frontend IndexedDB/cart/order khép nốt lát dọc ngày 15/09.
+Đây là thẻ nhạy cảm nhất của toàn bộ hợp đồng (`ADR-06`):
 
 - **Module `ordering` mới** (`domain/repository/service/controller`): `CustomerOrder`, `OrderLine`,
   `OrderLineOption`, `OrderStatusLog` map đúng bảng đã có sẵn từ `V1__baseline.sql`. Máy trạng thái
@@ -784,8 +784,20 @@ nào**, ghi `OPEN-18`. Đây là thẻ nhạy cảm nhất của toàn bộ hợ
   (`CustomerOrderRepository.khoaTheoChiNhanh`, cùng kỹ thuật `venue.khoaTheoBan`) + đếm số đơn
   trong ngày theo giờ Việt Nam — khớp đúng biểu thức đã cố định trong chỉ mục duy nhất của
   `V1__baseline.sql`, không tự chọn múi giờ khác.
+- **Frontend `web-guest` hoàn tất `FR-CUS-06/08/09`**:
+  - `src/lib/cart.ts` lưu một giỏ riêng cho từng `sessionId` trong IndexedDB. Dòng giỏ giữ snapshot
+    tên/giá để hiển thị khi mất mạng ngắn, nhưng `prepareCheckout()` dựng một `CreateOrderRequest`
+    mới chỉ gồm `menuItemId`, `variantId`, `optionIds`, `quantity`, `note`, `addedBy` — không có bất
+    kỳ tên hay trường giá nào đi lên máy chủ (`ADR-06`).
+  - UUIDv4 idempotency được lưu cùng giỏ ở lần đặt đầu, giữ nguyên qua mọi lần retry/lỗi mạng và
+    chỉ bị xoá khi nội dung giỏ thay đổi. Sau khi nhận đơn, client chỉ xoá giỏ nếu khoá vẫn khớp,
+    nên không làm mất món khách vừa thêm trong lúc request đang bay.
+  - Màn chi tiết món nay chọn được biến thể, nhóm tuỳ chọn `SINGLE`/`MULTIPLE` với `minSelect`/
+    `maxSelect`, số lượng và ghi chú tối đa 200 ký tự. `/cart` cho sửa/xoá, hiển thị giá tạm tính
+    kèm cảnh báo máy chủ sẽ tính lại; `/orders/[orderId]` đọc đơn từ server và hiển thị giá đã chốt.
+  - `src/lib/cart.test.mjs` dùng IndexedDB giả lập nhưng chạy đúng implementation thật, khoá bốn
+    ca: tồn tại qua lần mở lại, payload không giá, retry giữ nguyên khoá, và không xoá nhầm giỏ đã sửa.
 - **Cố tình chưa làm, ghi rõ để không tưởng đã xong**:
-  - Giỏ hàng offline (`FR-CUS-06`) và trang đặt món phía `web-guest` — `OPEN-18`.
   - `409 PRICE_CHANGED` — hợp đồng hiện tại không có trường nào để client báo "giá tôi thấy lúc
     xem thực đơn", nên chưa có cách nào máy chủ phát hiện "giá đã đổi kể từ lúc xem" — `OPEN-19`.
   - Giới hạn nghiệp vụ của `TM-ORD-03` (3 đơn/5 phút/phiên, trần 2 triệu/bàn) — vẫn kẹt ở `OPEN-02`
@@ -800,6 +812,109 @@ QR → phiên → đặt món — giá trả về đúng `45000×2=90000`; cố 
 nhau từng byte**; `outbox_event` có đúng hai dòng `OrderPlaced`, cả hai `published_at` khác null
 (đã phát qua Redis thật) — xác nhận `ADR-05` (ghi outbox cùng giao dịch nghiệp vụ) hoạt động đúng
 với module mới, không chỉ với `identity`/`venue` đã kiểm từ trước.
+
+Kiểm chứng frontend ngày 15/09/2026: `npm run test:unit` xanh 4/4 test; `npm run typecheck`,
+`npm run lint`, `npm run build` đều thành công, build đủ route tĩnh `/menu`, `/cart` và route động
+`/orders/[orderId]`; `npm audit` báo 0 vulnerability. Không có browser nào được kết nối với môi
+trường kiểm thử nên chưa chạy được thao tác click/reload thật; Docker Desktop cũng chưa chạy nên
+không lặp lại bộ 185 test backend/Testcontainers trong lượt này — bằng chứng backend ngày 14/09
+ở đoạn trên vẫn giữ nguyên vì thay đổi ngày 15/09 chỉ nằm trong `web-guest`.
+
+`BL-M1-04` hoàn tất ngày 15/09/2026 — KDS realtime đi trọn contract → backend → Redis/WebSocket →
+`web-staff`:
+
+- OpenAPI có hàng đợi KDS theo `X-Store-Id`, cập nhật dòng bằng `If-Match` + `X-Device-Id`, và
+  `409 VERSION_CONFLICT` trả cả bản hiện tại. AsyncAPI có `/topic/kds/{storeId}`, `/app/resume`,
+  `/user/queue/resume`, `ResyncRequired`; sự kiện đổi trạng thái/huỷ đơn được khai báo cho cả KDS
+  lẫn phiên khách. Type Java/TypeScript/Python đã sinh lại từ contract.
+- Backend đóng state machine `PENDING → CONFIRMED → PREPARING → READY → SERVED`; `CANCELLED` thắng
+  mọi trạng thái chưa huỷ và bắt buộc lý do. `KdsService` kiểm quyền + phạm vi chi nhánh, dùng
+  optimistic version, ghi `order_status_log` với nhân viên/thiết bị/thời điểm, và phát outbox cho
+  cả store/session. STOMP xác thực bằng staff JWT, chỉ cho subscribe chi nhánh có quyền; Redis
+  fan-out live, còn resume đọc outbox 15 phút theo `seq` và yêu cầu resync nếu khoảng trống đã hết hạn.
+- `web-staff` mới có `/login` và `/kds`: cache + hàng thao tác IndexedDB, replay theo từng nấc hợp
+  lệ, dedupe `eventId`, lưu `lastSeq`, tự resume/reconnect, đồng hồ SLA, ưu tiên phiếu quá hạn,
+  âm báo/nháy phiếu mới và xử lý xung đột bằng bản server mới nhất. Chi nhánh đang hoạt động được
+  chọn khi đăng nhập và gửi bằng `X-Store-Id`; đây mới đóng phần UX/header của `OPEN-10`, MDC log
+  theo header vẫn còn phải làm.
+- Quy tắc giao diện frontend từ nay được cố định ở `.cursor/rules/qros-frontend-design.mdc`, chắt
+  lọc từ `sharkqwy/v0prompt` và các rule Next.js/Toss-style của `PatrickJS/awesome-cursorrules`:
+  TypeScript/React semantic, responsive và accessible; giao diện sản phẩm yên, dễ quét, một màu
+  nhấn, thang xám rõ, spacing token nhất quán, shadow nhẹ, không gradient trang trí hay nested card.
+
+Kiểm chứng cuối ngày 15/09/2026: toàn bộ backend xanh **190/190 test** trên PostgreSQL 16 + Redis 7
+thật qua Testcontainers; `KdsOptimisticLockingTest` cho 50 virtual thread cùng version chỉ đúng một
+lượt thành công; `KdsRealtimeTest` nối STOMP thật, kiểm resume theo `seq` và live event dưới 1 giây.
+`web-staff` xanh 4/4 unit test, typecheck, ESLint, production build đủ `/login` + `/kds`, audit 0
+vulnerability; `web-guest` cũng hồi quy xanh 4/4, typecheck, lint, build và audit. Spectral có 0
+error/0 warning (còn một info khuyến nghị AsyncAPI 3.1), OpenAPI validate/generate và Python compile
+đều xanh. In-app browser runtime không cung cấp browser có thể điều khiển nên chưa kiểm tra trực
+quan/click thật; không dùng Playwright riêng để tránh tạo một nguồn trạng thái trình duyệt khác —
+kiểm tra này chuyển sang cổng E2E Chromium/WebKit của `BL-M1-06`.
+
+`BL-M1-05` hoàn tất ngày 15/09/2026 — báo hết nguyên liệu đi trọn KDS → inventory/catalog →
+PostgreSQL/outbox → thực đơn và cảnh báo đơn mở:
+
+- OpenAPI 1.2 có `POST /api/v1/staff/ingredients/{ingredientId}/sold-out`, bắt buộc `X-Store-Id`,
+  trả danh sách món/đơn bị ảnh hưởng; dòng KDS có danh sách nguyên liệu và trạng thái `soldOut`.
+  Java/TypeScript/Python đã sinh lại từ contract. AsyncAPI có `IngredientSoldOut` cho chi nhánh và
+  `ItemUnavailable` cho phiên khách, gồm tiền cần hoàn, danh sách thay thế và hạn phản hồi 3 phút.
+- `InventoryService` kiểm quyền `inventory:adjust` và phạm vi chi nhánh theo bất biến 404, khoá bi quan
+  đúng nguyên liệu, tìm ảnh hưởng chính xác qua cả recipe của biến thể lẫn tuỳ chọn, rồi cập nhật
+  `ingredient.sold_out` cùng các outbox event trong một giao dịch. Gọi lại endpoint là idempotent, không
+  phát trùng sự kiện. Các đơn mở chỉ bị đánh dấu khi đúng variant/option đã chọn dùng nguyên liệu đó.
+- KDS hiển thị nguyên liệu ngay trên từng dòng món, cho barista chọn đúng nguyên liệu để báo hết và
+  hiện cảnh báo nổi bật trên mọi phiếu mở bị ảnh hưởng. `web-guest` revalidate thực đơn mỗi giây bằng
+  ETag (`Cache-Control: private, no-cache, must-revalidate`), giữ món ở trạng thái mờ/không bấm được với
+  nhãn `Tạm hết`. Cách hiển thị này ưu tiên yêu cầu cụ thể của `FR-CUS-03`; câu “ẩn món” trong
+  `FR-BAR-05`/`EC-04` được hiểu là ẩn khỏi khả năng đặt, không xoá khỏi danh sách.
+- Phần server đã tạo `ItemUnavailable` theo đúng phiên khách, nhưng guest WebSocket/UI ba lựa chọn và
+  API nhận phản hồi chưa tồn tại; AI gợi ý thuộc M4 và hoàn tiền thuộc M2. Khoảng trống này được ghi
+  thành `OPEN-20`, không coi toàn bộ nhánh tương tác của `EC-04` là đã hoàn tất.
+
+Kiểm chứng cuối ngày 15/09/2026: toàn bộ backend xanh **192/192 test**, 0 fail/error/skip và `bootJar`
+thành công trên PostgreSQL 16 + Redis 7 qua Testcontainers. `InventorySoldOutTest` đi qua controller/JWT,
+kiểm lan toả menu + KDS dưới 2 giây, đúng món/đúng đơn, hai outbox event, idempotency và bất biến 404.
+Hai frontend đều xanh 4/4 unit test, typecheck, ESLint, production build và audit 0 vulnerability.
+Spectral 0 error/0 warning (còn một info AsyncAPI 3.1), OpenAPI validate/generate và Python compile đều
+xanh; `git diff --check` không có lỗi whitespace. In-app browser runtime trả về không có browser khả dụng,
+nên visual/click QA vẫn được chuyển sang cổng Chromium/WebKit của `BL-M1-06`.
+
+`BL-M1-06` đang chuẩn bị cổng staging ngày 15/09/2026:
+
+- Có `e2e/tests/m1-order-flow.spec.ts` đi trọn mã bàn → menu → giỏ → đặt món → KDS → `SERVED`.
+  `playwright test --list` nhận đúng hai lượt độc lập Chromium/WebKit. `load/menu.js` áp ngưỡng
+  p95 `<120 ms`, p99 `<250 ms` với mặc định 500 VU; `load/orders.js` kiểm ngưỡng đặt món.
+- Workflow chạy tay `.github/workflows/staging-gate.yml` tách security regression (`QrForgeryTest`,
+  `QrReplayTest`, `PriceTamperingTest`), E2E Chromium/WebKit, rồi hai cổng k6. Nó chỉ dùng GitHub
+  environment `staging` và secrets fixture, không thể vô ý tạo đơn/tải trên production.
+- Preflight cục bộ xanh: guest 4/4 unit test, typecheck, ESLint và production build (đủ `/menu`,
+  `/cart`, `/orders/[orderId]`, `/t/[qrToken]`); staff 4/4 unit test, typecheck, ESLint và production
+  build (đủ `/login`, `/kds`). `git diff --check` xanh. Chưa cài k6 cục bộ và chưa có URL/fixture/
+  credential staging, nên **không được** đổi `BL-M1-06` sang `DONE` cho tới khi workflow staging chạy
+  thật và lưu kết quả p95/p99/E2E.
+
+`OPEN-16` được đóng ngày 15/09/2026: `web-guest/scripts/check-initial-js-budget.mjs` đọc
+client-reference manifest Turbopack, gzip từng chunk JavaScript initial của mọi route guest và fail
+khi vượt 180 KB (`NFR-PERF-07`). Đo production build: `/menu` 138.9 KB (lớn nhất), `/cart` 137.5 KB,
+`/orders/[orderId]` 136.0 KB, `/t/[qrToken]` 132.2 KB và `/ma-ban` 131.9 KB. `guest-web` trong CI
+chạy unit/typecheck/lint/build rồi cổng này; không còn dựa vào ước lượng thô từ mọi chunk chia sẻ.
+
+`OPEN-10` được đóng ngày 15/09/2026: `StoreMdcFilter` chạy sau xác thực cookie trong cả chain staff
+và admin. Nó chỉ đặt `storeId` vào MDC nếu `X-Store-Id` là UUID canonical có trong claim `stores`
+(hoặc claim wildcard), và dọn giá trị sau request. `StoreMdcFilterTest` kiểm quyền/canonical/cleanup;
+`StructuredLoggingTest` kiểm encoder JSON thực sự phát trường đó. Chạy
+`./gradlew :backend:test --tests com.qros.shared.security.StoreMdcFilterTest --tests
+com.qros.shared.observability.StructuredLoggingTest --no-daemon` xanh ngày 15/09/2026.
+
+**Gắn Git thật, đẩy lên GitHub ngày 14/09/2026** (không phải một thẻ backlog — dọn nợ hạ tầng đã ghi
+từ `BL-M0-01`/`OPEN-13`). Workspace chưa từng có metadata `.git` trước thời điểm này; `git init -b
+main` tạo repo, commit gốc `f7bb3d0` (273 file, toàn bộ Sprint 0 + M0 + M1 walking skeleton tới hết
+backend của `BL-M1-03`), remote `origin` trỏ `https://github.com/longdxam/QR-order`, push `main`
+thành công (xác nhận qua `git ls-remote origin`). `OPEN-13` nay chỉ còn nửa sau: ba workflow
+(`ci.yml`, `contract-check.yml`, `security.yml`) **có thể** chạy thật trên GitHub Actions từ giờ,
+nhưng **chưa có lượt chạy nào được xác nhận xanh** trên tab Actions — đừng coi `BL-M0-03`/`BL-M0-12`
+đã kiểm chứng đầy đủ trên CI thật cho tới khi việc đó xảy ra và được ghi lại ở đây.
 
 ## Nguồn sự thật
 

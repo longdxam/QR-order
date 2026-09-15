@@ -3,6 +3,7 @@ package com.qros.shared.event;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -33,4 +34,19 @@ public interface OutboxRepository extends JpaRepository<OutboxEntity, Long> {
     @Modifying
     @Query("UPDATE OutboxEntity o SET o.publishedAt = :publishedAt WHERE o.id IN :ids")
     int markPublished(@Param("ids") Collection<Long> ids, @Param("publishedAt") Instant publishedAt);
+
+    @Query("""
+            SELECT o FROM OutboxEntity o
+            WHERE o.storeId = :storeId AND o.id > :lastSeq AND o.occurredAt >= :cutoff
+            ORDER BY o.id
+            """)
+    List<OutboxEntity> findReplayForStore(@Param("storeId") UUID storeId,
+            @Param("lastSeq") long lastSeq, @Param("cutoff") Instant cutoff);
+
+    @Query("""
+            SELECT CASE WHEN count(o) > 0 THEN true ELSE false END FROM OutboxEntity o
+            WHERE o.storeId = :storeId AND o.id > :lastSeq AND o.occurredAt < :cutoff
+            """)
+    boolean hasExpiredEventsForStore(@Param("storeId") UUID storeId,
+            @Param("lastSeq") long lastSeq, @Param("cutoff") Instant cutoff);
 }

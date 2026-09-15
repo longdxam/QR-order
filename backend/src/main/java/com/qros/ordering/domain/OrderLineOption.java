@@ -42,6 +42,10 @@ public class OrderLineOption {
         return orderLineId;
     }
 
+    public UUID getOptionChoiceId() {
+        return optionChoiceId;
+    }
+
     public String getOptionName() {
         return optionName;
     }

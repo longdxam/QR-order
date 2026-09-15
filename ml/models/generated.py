@@ -199,37 +199,23 @@ class Status1(StrEnum):
     CANCELLED = 'CANCELLED'
 
 
-class OrderLine(BaseModel):
+class IngredientRef(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     id: UUID
-    menuItemId: UUID
     name: str
-    variantName: str | None = None
-    optionNames: list[str] | None = Field(
-        None, examples=[['Đường 50%', 'Ít đá', 'Thêm trân châu']]
-    )
-    quantity: int
-    unitPrice: Money | None = Field(
-        None, description='Chỉ có ở **đáp ứng**. Không bao giờ chấp nhận ở request.'
-    )
-    lineTotal: Money
-    note: str | None = None
-    addedBy: str | None = None
-    status: Status1
-    version: int = Field(
-        ..., description='Dùng cho khoá lạc quan qua `If-Match` — `EC-06`.'
-    )
+    soldOut: bool
 
 
-class KdsTicket(BaseModel):
-    orderId: UUID
-    shortCode: str
-    tableLabel: str
-    placedAt: AwareDatetime
-    slaSeconds: int = Field(
-        ..., description='Ngưỡng cảnh báo, mặc định 480 giây — `FR-BAR-04`.'
+class IngredientSoldOutResult(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
     )
-    isOverdue: bool | None = None
-    lines: list[OrderLine]
+    ingredientId: UUID
+    ingredientName: str
+    affectedItemIds: list[UUID]
+    affectedOpenOrderIds: list[UUID]
 
 
 class Status2(StrEnum):
@@ -388,6 +374,67 @@ class CreateOrderRequest(BaseModel):
     note: str | None = Field(None, max_length=200)
 
 
+class OrderLine(BaseModel):
+    id: UUID
+    menuItemId: UUID
+    name: str
+    variantName: str | None = None
+    optionNames: list[str] | None = Field(
+        None, examples=[['Đường 50%', 'Ít đá', 'Thêm trân châu']]
+    )
+    ingredients: list[IngredientRef] | None = Field(
+        None,
+        description='Nguyên liệu của biến thể và các tuỳ chọn đã chọn; chỉ điền trên KDS.',
+    )
+    quantity: int
+    unitPrice: Money | None = Field(
+        None, description='Chỉ có ở **đáp ứng**. Không bao giờ chấp nhận ở request.'
+    )
+    lineTotal: Money
+    note: str | None = None
+    addedBy: str | None = None
+    status: Status1
+    version: int = Field(
+        ..., description='Dùng cho khoá lạc quan qua `If-Match` — `EC-06`.'
+    )
+
+
+class KdsTicket(BaseModel):
+    orderId: UUID
+    shortCode: str
+    tableLabel: str
+    placedAt: AwareDatetime
+    slaSeconds: int = Field(
+        ..., description='Ngưỡng cảnh báo, mặc định 480 giây — `FR-BAR-04`.'
+    )
+    isOverdue: bool | None = None
+    requiresStaffConfirmation: bool = Field(
+        ...,
+        description='Đơn đầu của phiên lạ phải được nhân viên xác nhận trước khi pha (`EC-03`).',
+    )
+    lines: list[OrderLine]
+
+
+class VersionConflictProblem(Problem):
+    current: OrderLine = Field(
+        ...,
+        description='Trạng thái mới nhất để client tự làm mới và giải quyết hàng đợi ngoại tuyến.',
+    )
+
+
+class Category(BaseModel):
+    id: UUID
+    name: str
+    displayOrder: int | None = None
+    items: list[MenuItem]
+
+
+class Menu(BaseModel):
+    storeId: UUID
+    updatedAt: AwareDatetime
+    categories: list[Category]
+
+
 class Order(BaseModel):
     id: UUID
     shortCode: str | None = Field(
@@ -407,16 +454,3 @@ class Order(BaseModel):
         description='`true` cho đơn đầu tiên của phiên lạ — cổng xác nhận ở `EC-03`.',
     )
     version: int
-
-
-class Category(BaseModel):
-    id: UUID
-    name: str
-    displayOrder: int | None = None
-    items: list[MenuItem]
-
-
-class Menu(BaseModel):
-    storeId: UUID
-    updatedAt: AwareDatetime
-    categories: list[Category]

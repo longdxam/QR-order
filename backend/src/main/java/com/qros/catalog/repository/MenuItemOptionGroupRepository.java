@@ -11,4 +11,6 @@ import com.qros.catalog.domain.MenuItemOptionGroupId;
 public interface MenuItemOptionGroupRepository extends JpaRepository<MenuItemOptionGroup, MenuItemOptionGroupId> {
 
     List<MenuItemOptionGroup> findByMenuItemIdInOrderByDisplayOrder(List<UUID> menuItemIds);
+
+    List<MenuItemOptionGroup> findByOptionGroupIdIn(List<UUID> optionGroupIds);
 }

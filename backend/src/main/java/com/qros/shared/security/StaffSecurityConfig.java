@@ -43,11 +43,13 @@ public class StaffSecurityConfig {
 
         CookieSessionAuthenticationFilter cookieFilter =
                 new CookieSessionAuthenticationFilter(staffJwtVerifier, entryPoint, tokenVersionValidator);
+        StoreMdcFilter storeMdcFilter = new StoreMdcFilter();
 
         return http.securityMatcher("/api/v1/staff/**")
                 .authorizeHttpRequests(auth -> auth
                         .anyRequest().hasAuthority("SCOPE_" + properties.staff().scope()))
                 .addFilterBefore(cookieFilter, AuthorizationFilter.class)
+                .addFilterAfter(storeMdcFilter, CookieSessionAuthenticationFilter.class)
                 // FR-AUTH-02: sau khi biết danh tính (đọc claim từ token) nhưng trước khi phân
                 // quyền theo scope — chặn ghi sớm nhất có thể mà vẫn biết được ai đang gọi.
                 .addFilterAfter(mfaEnforcementFilter, CookieSessionAuthenticationFilter.class)

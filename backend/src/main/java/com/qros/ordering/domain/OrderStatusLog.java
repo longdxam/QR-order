@@ -23,6 +23,9 @@ public class OrderStatusLog {
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 
+    @Column(name = "order_line_id")
+    private UUID orderLineId;
+
     @Column(name = "from_status")
     private String fromStatus;
 
@@ -31,6 +34,12 @@ public class OrderStatusLog {
 
     @Column(name = "reason")
     private String reason;
+
+    @Column(name = "actor_id")
+    private UUID actorId;
+
+    @Column(name = "device_id")
+    private UUID deviceId;
 
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
@@ -47,6 +56,15 @@ public class OrderStatusLog {
         log.toStatus = toStatus;
         log.reason = reason;
         log.occurredAt = now;
+        return log;
+    }
+
+    public static OrderStatusLog chuyenDong(UUID orderId, UUID orderLineId, String fromStatus,
+            String toStatus, String reason, UUID actorId, UUID deviceId, Instant now) {
+        OrderStatusLog log = chuyen(orderId, fromStatus, toStatus, reason, now);
+        log.orderLineId = orderLineId;
+        log.actorId = actorId;
+        log.deviceId = deviceId;
         return log;
     }
 }

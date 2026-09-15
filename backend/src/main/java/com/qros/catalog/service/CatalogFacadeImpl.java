@@ -4,6 +4,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -13,7 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.qros.catalog.api.CatalogFacade;
+import com.qros.catalog.api.IngredientImpact;
+import com.qros.catalog.api.IngredientView;
 import com.qros.catalog.api.PricedLine;
+import com.qros.catalog.api.RecipeSelection;
 import com.qros.catalog.api.PricedLine.PricedOption;
 import com.qros.catalog.domain.MenuItemEntity;
 import com.qros.catalog.domain.MenuItemOptionGroup;
@@ -140,6 +146,70 @@ public class CatalogFacadeImpl implements CatalogFacade {
 
         return new PricedLine(item.getName(), variant.getName(), item.getStation(),
                 variantAvailable && optionsAvailable, variantPrice + surcharge, pricedOptions);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public IngredientImpact ingredientImpact(UUID storeId, UUID ingredientId) {
+        var ingredient = ingredientRepository.findByIdAndStoreId(ingredientId, storeId)
+                .orElseThrow(() -> new QrosException(ErrorCode.NOT_FOUND));
+
+        List<UUID> variantIds = recipeComponentRepository.findByIngredientId(ingredientId).stream()
+                .map(component -> component.getMenuVariantId()).distinct().toList();
+        List<UUID> optionChoiceIds = optionRecipeComponentRepository.findByIngredientId(ingredientId).stream()
+                .map(component -> component.getOptionChoiceId()).distinct().toList();
+
+        LinkedHashSet<UUID> candidateItemIds = new LinkedHashSet<>();
+        if (!variantIds.isEmpty()) {
+            menuVariantRepository.findAllById(variantIds).stream()
+                    .map(MenuVariant::getMenuItemId).forEach(candidateItemIds::add);
+        }
+        if (!optionChoiceIds.isEmpty()) {
+            List<UUID> groupIds = optionChoiceRepository.findAllById(optionChoiceIds).stream()
+                    .map(OptionChoice::getOptionGroupId).distinct().toList();
+            if (!groupIds.isEmpty()) {
+                menuItemOptionGroupRepository.findByOptionGroupIdIn(groupIds).stream()
+                        .map(MenuItemOptionGroup::getMenuItemId).forEach(candidateItemIds::add);
+            }
+        }
+        List<UUID> itemIds = candidateItemIds.isEmpty() ? List.of()
+                : menuItemRepository.findByIdInAndStoreId(List.copyOf(candidateItemIds), storeId).stream()
+                        .map(MenuItemEntity::getId).toList();
+        return new IngredientImpact(ingredientId, ingredient.getName(), itemIds, variantIds, optionChoiceIds);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, List<IngredientView>> ingredientsFor(UUID storeId, List<RecipeSelection> selections) {
+        if (selections.isEmpty()) return Map.of();
+        List<UUID> variantIds = selections.stream().map(RecipeSelection::variantId).distinct().toList();
+        List<UUID> choiceIds = selections.stream().flatMap(selection -> selection.optionChoiceIds().stream())
+                .distinct().toList();
+        Map<UUID, List<UUID>> byVariant = recipeComponentRepository.findByMenuVariantIdIn(variantIds).stream()
+                .collect(Collectors.groupingBy(component -> component.getMenuVariantId(),
+                        Collectors.mapping(component -> component.getIngredientId(), Collectors.toList())));
+        Map<UUID, List<UUID>> byChoice = choiceIds.isEmpty() ? Map.of()
+                : optionRecipeComponentRepository.findByOptionChoiceIdIn(choiceIds).stream()
+                        .collect(Collectors.groupingBy(component -> component.getOptionChoiceId(),
+                                Collectors.mapping(component -> component.getIngredientId(), Collectors.toList())));
+        LinkedHashSet<UUID> allIngredientIds = new LinkedHashSet<>();
+        byVariant.values().forEach(allIngredientIds::addAll);
+        byChoice.values().forEach(allIngredientIds::addAll);
+        Map<UUID, IngredientView> ingredientById = ingredientRepository.findAllById(allIngredientIds).stream()
+                .filter(ingredient -> ingredient.getStoreId().equals(storeId))
+                .collect(Collectors.toMap(ingredient -> ingredient.getId(),
+                        ingredient -> new IngredientView(ingredient.getId(), ingredient.getName(),
+                                ingredient.isSoldOut())));
+
+        Map<UUID, List<IngredientView>> result = new LinkedHashMap<>();
+        selections.forEach(selection -> {
+            LinkedHashSet<UUID> ids = new LinkedHashSet<>(
+                    byVariant.getOrDefault(selection.variantId(), List.of()));
+            selection.optionChoiceIds().forEach(choiceId -> ids.addAll(byChoice.getOrDefault(choiceId, List.of())));
+            result.put(selection.key(), ids.stream().map(ingredientById::get)
+                    .filter(java.util.Objects::nonNull).toList());
+        });
+        return result;
     }
 
     /**

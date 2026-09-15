@@ -91,7 +91,7 @@ class GuestMenuHttpFlowTest extends QrosIntegrationTest {
                 .contains("45000");
         assertThat(phanHoi.headers().firstValue("ETag")).isPresent();
         assertThat(phanHoi.headers().firstValue("Cache-Control")).hasValueSatisfying(
-                value -> assertThat(value).contains("max-age=60"));
+                value -> assertThat(value).contains("private", "no-cache", "must-revalidate"));
     }
 
     @Test

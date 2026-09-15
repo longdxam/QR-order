@@ -32,6 +32,14 @@ public class Ingredient {
         return id;
     }
 
+    public UUID getStoreId() {
+        return storeId;
+    }
+
+    public String getName() {
+        return name;
+    }
+
     public boolean isSoldOut() {
         return soldOut;
     }

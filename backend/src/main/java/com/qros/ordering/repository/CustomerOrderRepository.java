@@ -19,6 +19,8 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
 
     long countBySessionId(UUID sessionId);
 
+    List<CustomerOrder> findByStoreIdAndStatusInOrderByPlacedAtAsc(UUID storeId, List<String> statuses);
+
     /**
      * Khoá tư vấn phạm vi giao dịch theo chi nhánh — dùng trước khi tính số thứ tự hàng ngày cho
      * {@code short_code}, cùng kỹ thuật {@code venue.TableSessionRepository.khoaTheoBan} (tránh hai

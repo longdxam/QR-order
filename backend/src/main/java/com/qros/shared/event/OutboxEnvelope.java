@@ -13,7 +13,7 @@ import tools.jackson.databind.ObjectMapper;
  * thân đã lưu được trải ra trước rồi mới tới các trường phong bì — trường phong bì thắng nếu trùng
  * tên, vì {@code seq} và {@code occurredAt} là của máy chủ, không phải của nơi tạo sự kiện.
  */
-final class OutboxEnvelope {
+public final class OutboxEnvelope {
 
     private static final TypeReference<Map<String, Object>> BODY_TYPE = new TypeReference<>() {
     };
@@ -21,7 +21,7 @@ final class OutboxEnvelope {
     private OutboxEnvelope() {
     }
 
-    static String json(ObjectMapper objectMapper, OutboxEntity event) {
+    public static String json(ObjectMapper objectMapper, OutboxEntity event) {
         Map<String, Object> message = new LinkedHashMap<>(
                 objectMapper.readValue(event.getPayload(), BODY_TYPE));
 
