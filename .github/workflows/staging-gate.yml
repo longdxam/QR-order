@@ -35,6 +35,7 @@ jobs:
           ./gradlew :backend:test --no-daemon
           --tests com.qros.security.QrForgeryTest
           --tests com.qros.security.QrReplayTest
+          --tests com.qros.security.IdorTest
           --tests com.qros.security.PriceTamperingTest
 
   e2e:
