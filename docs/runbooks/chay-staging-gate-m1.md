@@ -36,6 +36,8 @@ bảng chỉ là kiểu dữ liệu, không commit giá trị thật.
 | `QROS_E2E_OPTION_ID` | UUID option active, hoặc để trống khi item không cần option | k6 order |
 
 `staging-gate.yml` chỉ đọc các secret này. Không cần tạo secret tên khác để workflow chạy.
+Workflow dừng ngay nếu một secret bắt buộc rỗng, hoặc guest/staff/API không phải URL HTTPS công khai
+(bao gồm `localhost` và domain mẫu).
 
 ## 3. Preflight thủ công
 

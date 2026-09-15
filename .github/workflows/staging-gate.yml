@@ -74,6 +74,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v6
 
+      - name: Validate staging secrets and URLs
+        run: bash .github/scripts/validate-staging-env.sh
+
       - name: Install E2E dependencies
         run: npm ci --prefix e2e
 
@@ -109,6 +112,9 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
+
+      - name: Validate staging secrets and URLs
+        run: bash .github/scripts/validate-staging-env.sh
 
       - name: Run menu revalidation load gate
         uses: grafana/setup-k6-action@v1
