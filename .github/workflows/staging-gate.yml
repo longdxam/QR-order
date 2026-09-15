@@ -44,6 +44,10 @@ jobs:
     environment: staging
     strategy:
       fail-fast: false
+      # Cả hai browser dùng fixture staging cùng table/store/staff. Chạy tuần tự để lượt WebKit
+      # không thể lấy phiếu KDS của lượt Chromium qua selector .first(). Fixture độc lập theo run
+      # sẽ cho phép tăng lại concurrency sau này.
+      max-parallel: 1
       matrix:
         browser: [chromium, webkit]
     env:

@@ -2,6 +2,8 @@
 
 Suite chạy cùng một luồng mã bàn → menu → giỏ → đặt món → KDS → `SERVED` trên Chromium và WebKit.
 Fixture staging phải có một bàn trống, ít nhất một món có biến thể khả dụng và một tài khoản barista.
+Workflow staging chạy hai browser **tuần tự** vì chúng dùng chung fixture; không đổi thành chạy song
+song cho tới khi mỗi browser/run có table, account và dữ liệu cleanup độc lập.
 
 ```powershell
 $env:QROS_GUEST_URL='https://order.staging.example.com'
