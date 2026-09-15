@@ -107,7 +107,7 @@ tầng rồi mới nối. Các thẻ ở đây ở trạng thái `LATER` cho t�
 | `BL-M1-03` | Giỏ offline và đặt món: `ordering/`, cart, order pages | `FR-CUS-06`, `FR-CUS-08`, `FR-CUS-09`, `TM-ORD-01`…`03` | Client không gửi giá; idempotent; order+outbox nguyên tử; test tampering xanh | DONE |
 | `BL-M1-04` | KDS realtime: `web-staff/app/kds`, WebSocket resume/dedupe | `FR-BAR-01`…`04`, `FR-BAR-06`, `EC-06`, `TM-EVT-01` | Đơn tới KDS ≤1s; optimistic lock; reconnect/resume không mất/lặp hiệu ứng | DONE |
 | `BL-M1-05` | Hết nguyên liệu lan toả: `inventory/`, catalog event, KDS | `FR-BAR-05`, `EC-04` | Báo hết → món thành `Tạm hết` ≤2s; đơn đang chờ được cảnh báo | DONE |
-| `BL-M1-06` | Cổng thoát M1 trên staging | `FR-CUS-01`…`11`, `FR-BAR-01`…`06` | Một đơn đi từ QR tới `SERVED`; Chromium/WebKit; k6 và test security liên quan xanh | READY |
+| `BL-M1-06` | Cổng exit M1 local (staging là tuỳ chọn cho bài tập lớn) | `FR-CUS-01`…`11`, `FR-BAR-01`…`06` | Backend/frontend test local xanh; E2E/k6 staging chỉ là bằng chứng bổ sung khi có hạ tầng | IN PROGRESS |
 
 ## 6. M2–M5 — hàng đợi cấp cao
 

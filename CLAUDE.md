@@ -880,7 +880,7 @@ Spectral 0 error/0 warning (còn một info AsyncAPI 3.1), OpenAPI validate/gene
 xanh; `git diff --check` không có lỗi whitespace. In-app browser runtime trả về không có browser khả dụng,
 nên visual/click QA vẫn được chuyển sang cổng Chromium/WebKit của `BL-M1-06`.
 
-`BL-M1-06` đang chuẩn bị cổng staging ngày 15/09/2026:
+`BL-M1-06` chuyển sang hoàn thiện M1 local ngày 15/09/2026; staging/deploy không bắt buộc cho bài tập lớn:
 
 - Có `e2e/tests/m1-order-flow.spec.ts` đi trọn mã bàn → menu → giỏ → đặt món → KDS → `SERVED`.
   `playwright test --list` nhận đúng hai lượt độc lập Chromium/WebKit. `load/menu.js` áp ngưỡng
@@ -891,8 +891,18 @@ nên visual/click QA vẫn được chuyển sang cổng Chromium/WebKit của `
 - Preflight cục bộ xanh: guest 4/4 unit test, typecheck, ESLint và production build (đủ `/menu`,
   `/cart`, `/orders/[orderId]`, `/t/[qrToken]`); staff 4/4 unit test, typecheck, ESLint và production
   build (đủ `/login`, `/kds`). `git diff --check` xanh. Chưa cài k6 cục bộ và chưa có URL/fixture/
-  credential staging, nên **không được** đổi `BL-M1-06` sang `DONE` cho tới khi workflow staging chạy
-  thật và lưu kết quả p95/p99/E2E.
+  credential staging. Mục tiêu hiện tại là hoàn tất mọi chức năng/test M1 local; workflow staging giữ
+  lại như bằng chứng bổ sung khi dự án có hạ tầng deploy.
+
+## Nhớ khi tiếp tục M1 (15/09/2026)
+
+- `TM-SES-01` đã triển khai local: OpenAPI có `guestDevice`; token mới mang claim `did`; web guest
+  gửi `X-Device-Id`; filter đối chiếu token/header. Token cũ không có `did` chỉ tương thích tối đa TTL
+  90 phút. Test token sai thiết bị trả 401; full backend regression 200 test, 0 lỗi.
+- `TM-ORD-03` đã có giới hạn domain: tối đa 8 dòng và 2.000.000 VND cho một đơn. Phần còn lại là
+  limiter Redis 5 mở phiên/10 phút/IP, 3 đơn/5 phút/phiên, fail-closed cho thao tác ghi.
+- `BL-M1-06` không còn là blocker staging; chỉ được đánh dấu DONE sau khi limiter Redis và test abuse
+  local hoàn tất. Các artifact E2E/k6/GitHub Actions vẫn giữ cho lúc cần deploy.
 
 `OPEN-16` được đóng ngày 15/09/2026: `web-guest/scripts/check-initial-js-budget.mjs` đọc
 client-reference manifest Turbopack, gzip từng chunk JavaScript initial của mọi route guest và fail
