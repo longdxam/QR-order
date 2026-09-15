@@ -72,8 +72,9 @@ public class GuestSessionController implements GuestSessionApi {
     @Override
     public ResponseEntity<TableSession> getCurrentSession() {
         UUID sessionId = currentSessionId();
-        SessionOutcome outcome = tableSessionService.currentSession(sessionId);
-        return ResponseEntity.ok(toDto(outcome, null));
+        UUID deviceId = currentDeviceId();
+        SessionOutcome outcome = tableSessionService.currentSession(sessionId, deviceId);
+        return ResponseEntity.ok(toDto(outcome, deviceId));
     }
 
     private UUID currentSessionId() {
@@ -84,6 +85,18 @@ public class GuestSessionController implements GuestSessionApi {
         try {
             return UUID.fromString(jwt.getSubject());
         } catch (IllegalArgumentException exception) {
+            throw new QrosException(ErrorCode.TABLE_SESSION_EXPIRED);
+        }
+    }
+
+    private UUID currentDeviceId() {
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (!(principal instanceof Jwt jwt)) {
+            throw new QrosException(ErrorCode.TABLE_SESSION_EXPIRED);
+        }
+        try {
+            return UUID.fromString(jwt.getClaimAsString("did"));
+        } catch (IllegalArgumentException | NullPointerException exception) {
             throw new QrosException(ErrorCode.TABLE_SESSION_EXPIRED);
         }
     }

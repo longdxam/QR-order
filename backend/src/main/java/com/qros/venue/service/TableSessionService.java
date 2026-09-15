@@ -112,7 +112,7 @@ public class TableSessionService {
     }
 
     @Transactional(readOnly = true)
-    public SessionOutcome currentSession(UUID sessionId) {
+    public SessionOutcome currentSession(UUID sessionId, UUID deviceId) {
         Instant now = Instant.now(clock);
         TableSessionEntity session = tableSessionRepository.findById(sessionId)
                 .filter(TableSessionEntity::isOpen)
@@ -125,7 +125,7 @@ public class TableSessionService {
                 .orElseThrow(() -> new QrosException(ErrorCode.TABLE_SESSION_EXPIRED));
         List<SessionDevice> participants = sessionDeviceRepository.findBySessionIdOrderByJoinedAt(sessionId);
 
-        String accessToken = issueAccessToken(session, now);
+        String accessToken = issueAccessToken(session, deviceId, now);
         return new SessionOutcome(session, store, table, true, participants, accessToken);
     }
 
@@ -170,7 +170,7 @@ public class TableSessionService {
         tableSessionRepository.save(session);
         SessionDevice device = new SessionDevice(session.getId(), deviceId, nickname, now);
         sessionDeviceRepository.save(device);
-        String accessToken = issueAccessToken(session, now);
+        String accessToken = issueAccessToken(session, deviceId, now);
         return new SessionOutcome(session, store, table, false, List.of(device), accessToken);
     }
 
@@ -192,7 +192,7 @@ public class TableSessionService {
         }
         session.recordActivity(now);
         List<SessionDevice> participants = sessionDeviceRepository.findBySessionIdOrderByJoinedAt(session.getId());
-        String accessToken = issueAccessToken(session, now);
+        String accessToken = issueAccessToken(session, deviceId, now);
         return new SessionOutcome(session, store, table, true, participants, accessToken);
     }
 
@@ -203,12 +203,13 @@ public class TableSessionService {
                 null, Map.of("deviceCount", soThietBi), null));
     }
 
-    private String issueAccessToken(TableSessionEntity session, Instant now) {
+    private String issueAccessToken(TableSessionEntity session, UUID deviceId, Instant now) {
         Duration ttl = Duration.between(now, session.getExpiresAt());
         Map<String, Object> claims = Map.of(
                 "scope", "table_session",
                 "sid", session.getStoreId().toString(),
                 "tid", session.getTableId().toString(),
+                "did", deviceId.toString(),
                 // Chưa có cơ chế thu hồi theo phiên (khác token_version của staff) — giữ claim cho
                 // đúng cấu trúc chung NFR-SEC-02 mô tả, chưa có nơi nào đọc lại giá trị này.
                 "tv", 0);
