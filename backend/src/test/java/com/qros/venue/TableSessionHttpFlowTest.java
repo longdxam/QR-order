@@ -247,11 +247,13 @@ class TableSessionHttpFlowTest extends QrosIntegrationTest {
 
     @Test
     void layPhienHienTai_dungTokenDaCap() throws Exception {
-        HttpResponse<String> phienMoi = quet(UuidV7.generate());
+        UUID deviceId = UuidV7.generate();
+        HttpResponse<String> phienMoi = quet(deviceId);
         String token = accessTokenTu(phienMoi.body());
 
         HttpResponse<String> hienTai = client.send(HttpRequest.newBuilder(uri("/api/v1/guest/sessions/current"))
                         .header("Authorization", "Bearer " + token)
+                        .header("X-Device-Id", deviceId.toString())
                         .GET().build(),
                 BodyHandlers.ofString());
 

@@ -9,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 
 /**
  * Vùng khách: {@code /api/v1/guest/**} ({@code FR-AUTH-01}, {@code NFR-SEC-02}…{@code 08}).
@@ -33,6 +34,7 @@ public class GuestSecurityConfig {
             ProblemAuthenticationEntryPoint entryPoint, ProblemAccessDeniedHandler accessDeniedHandler)
             throws Exception {
 
+        GuestDeviceBindingFilter deviceBindingFilter = new GuestDeviceBindingFilter(entryPoint);
         return http.securityMatcher("/api/v1/guest/**")
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
@@ -49,6 +51,7 @@ public class GuestSecurityConfig {
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
+                .addFilterAfter(deviceBindingFilter, BearerTokenAuthenticationFilter.class)
                 // Token đi qua header chứ không qua cookie, nên trình duyệt không tự đính kèm nó
                 // vào request từ trang khác — điều kiện duy nhất khiến tắt CSRF là an toàn.
                 .csrf(csrf -> csrf.disable())
