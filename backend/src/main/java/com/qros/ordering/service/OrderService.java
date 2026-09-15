@@ -53,6 +53,9 @@ import com.qros.venue.api.TableSessionView;
 @ConditionalOnProperty(name = "spring.datasource.url")
 public class OrderService {
 
+    private static final int MAX_LINES_PER_ORDER = 8;
+    private static final long MAX_SESSION_ORDER_AMOUNT = 2_000_000L;
+
     private final CatalogFacade catalogFacade;
     private final TableSessionFacade tableSessionFacade;
     private final CustomerOrderRepository customerOrderRepository;
@@ -99,6 +102,10 @@ public class OrderService {
     public IdempotentResponse<Order> placeOrder(UUID sessionId, UUID idempotencyKey, String bodyJson,
             List<LineInput> lines, String orderNote) {
 
+        if (lines.size() > MAX_LINES_PER_ORDER) {
+            throw new QrosException(ErrorCode.VALIDATION_FAILED, "Một đơn tối đa 8 dòng món");
+        }
+
         TableSessionView session = phienDangMo(sessionId);
         IdempotencyRequest request = new IdempotencyRequest(idempotencyKey, "guest.placeOrder", sessionId, bodyJson);
         return idempotencyGuard.execute(request, Order.class, () -> taoDonThat(session, lines, orderNote));
@@ -123,6 +130,9 @@ public class OrderService {
         long subtotal = daDinhGia.stream()
                 .mapToLong(d -> Math.multiplyExact(d.gia().unitPriceEach(), d.input().quantity()))
                 .sum();
+        if (subtotal > MAX_SESSION_ORDER_AMOUNT) {
+            throw new QrosException(ErrorCode.VALIDATION_FAILED, "Tổng đơn vượt giới hạn 2.000.000 VND");
+        }
 
         // EC-03: đơn đầu của một phiên chưa được thu ngân mở phải chờ nhân viên xác nhận; đơn tiếp
         // theo trong cùng phiên tự động xác nhận, kể cả khi thu ngân chưa mở bàn.
