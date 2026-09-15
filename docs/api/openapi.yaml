@@ -132,7 +132,7 @@ paths:
       summary: Trạng thái phiên hiện tại
       description: Trả về phiên bàn gắn với token khách hiện tại nếu phiên còn hiệu lực.
       x-requirements: [FR-CUS-01]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       responses:
         '200':
           description: OK
@@ -157,7 +157,7 @@ paths:
         Đáp ứng có `ETag`; client gửi `If-None-Match` để nhận `304` — đây là đường đi
         chịu tải lớn nhất hệ thống, xem `NFR-PERF-01`.
       x-requirements: [FR-CUS-03, FR-CUS-04, NFR-PERF-01]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - name: If-None-Match
           in: header
@@ -185,7 +185,7 @@ paths:
       summary: Chi tiết một món
       description: Trả chi tiết món trong thực đơn của đúng chi nhánh thuộc phiên bàn hiện tại.
       x-requirements: [FR-CUS-03, FR-CUS-05]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
@@ -217,7 +217,7 @@ paths:
         kèm `200` thay vì tạo đơn mới. Đây là lớp bảo vệ chống chạm hai lần và chống thử lại
         sau khi mất mạng.
       x-requirements: [FR-CUS-08, FR-CUS-09, ADR-06, EC-01]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -265,7 +265,7 @@ paths:
       summary: Các đơn trong phiên hiện tại
       description: Liệt kê các đơn và tổng tiền thuộc đúng phiên bàn hiện tại.
       x-requirements: [FR-CUS-10, FR-CUS-11]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       responses:
         '200':
           description: OK
@@ -293,7 +293,7 @@ paths:
         Không đủ điều kiện thì trả `404`, **không** trả `403` — tránh xác nhận sự tồn tại
         của đơn thuộc bàn khác.
       x-requirements: [FR-CUS-10, NFR-SEC-06]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - $ref: '#/components/parameters/OrderId'
       responses:
@@ -311,7 +311,7 @@ paths:
       summary: Khách tự huỷ đơn
       description: Chỉ chấp nhận khi đơn còn ở `PENDING`. Từ `PREPARING` trở đi phải qua nhân viên.
       x-requirements: [FR-CUS-08, EC-06]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - $ref: '#/components/parameters/OrderId'
       responses:
@@ -331,7 +331,7 @@ paths:
       summary: Gọi nhân viên
       description: Giới hạn 1 lần / 90 giây / bàn để chống spam.
       x-requirements: [FR-CUS-12]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       requestBody:
         required: true
         content:
@@ -366,7 +366,7 @@ paths:
 
         Trạng thái thanh toán **không bao giờ** được quyết định bởi URL trả về của trình duyệt.
       x-requirements: [FR-CUS-13, FR-CUS-14, EC-01]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -394,7 +394,7 @@ paths:
         "Đang xác nhận thanh toán…". Đây là đường phục hồi phía khách của `EC-01`;
         đường phục hồi phía máy chủ là tác vụ đối soát `FR-PAY-06`.
       x-requirements: [EC-01, FR-PAY-06]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - name: intentId
           in: path
@@ -422,7 +422,7 @@ paths:
         bên ngoài — nên endpoint này vẫn hoạt động khi mạng ra Internet chết, xem `EC-05`.
         Trường `source` cho client biết đang nhận gợi ý từ mô hình hay từ danh sách dự phòng.
       x-requirements: [FR-AI-01, FR-AI-02, FR-AI-08, NFR-PERF-04]
-      security: [{ tableSession: [] }]
+      security: [{ tableSession: [], guestDevice: [] }]
       parameters:
         - name: context
           in: query
@@ -841,6 +841,11 @@ components:
       description: |
         Cookie `HttpOnly; Secure; SameSite=Strict; Path=/api`. TTL 15 phút,
         làm mới qua `/auth/refresh`.
+    guestDevice:
+      type: apiKey
+      in: header
+      name: X-Device-Id
+      description: UUID thiet bi phai khop chinh xac claim `did` trong `tableSession` JWT.
     webhookSignature:
       type: apiKey
       in: header
