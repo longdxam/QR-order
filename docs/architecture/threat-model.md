@@ -128,7 +128,7 @@ Rủi ro tồn dư là đánh giá sau khi toàn bộ biện pháp và kiểm th
 | `TM-AUTH-01` | `security/CredentialStuffingTest` — lỗi đồng nhất và khoá sau ngưỡng | Integration | Xanh 14/09/2026 · PostgreSQL 16 qua Testcontainers 2.0.5 · Java 25 · Gradle 9.1.0 |
 | `TM-AUTH-02` | `security/JwtAlgorithmConfusionTest` — thuật toán/audience/key chéo bị từ chối | Integration | Xanh 13/09/2026 · Tomcat thật · Java 25 · Spring Security 7.1.1 · Gradle 9.1.0 |
 | `TM-AUTH-03` | `security/RefreshTokenReuseTest` — reuse thu hồi cả token family | Integration | Xanh 14/09/2026 · PostgreSQL 16 qua Testcontainers 2.0.5 · Java 25 · Gradle 9.1.0 |
-| `TM-ACC-01` | `security/IdorTest` — đơn của phiên bàn khác không thể xem hoặc hủy và luôn trả 404 | Integration | Một phần 15/09/2026 — hai endpoint guest theo UUID của luồng M1 đã xanh; ma trận staff/admin và các endpoint ngoài M1 còn Kế hoạch |
+| `TM-ACC-01` | `security/IdorTest` — đơn của phiên bàn khác không thể xem/hủy và barista không thể đọc KDS chi nhánh khác; đều trả 404 | Integration | Một phần 15/09/2026 — endpoint đơn guest theo UUID và KDS M1 đã xanh; ma trận staff/admin và các endpoint ngoài M1 còn Kế hoạch |
 | `TM-ORD-01` | `security/PriceTamperingTest` — field giá bị từ chối và tổng do server tính | Integration | Xanh 14/09/2026 · PostgreSQL 16 qua Testcontainers 2.0.5 · Java 25 · Gradle 9.1.0 |
 | `TM-ORD-02` | `integration/IdempotencyTest` — cùng key chỉ tạo một hiệu ứng | Integration | Xanh 13/09/2026 · PostgreSQL 16 qua Testcontainers 2.0.5 · Java 25 · Gradle 9.1.0 |
 | `TM-ORD-03` | `security/OrderAbuseLimitTest` — giới hạn phiên/đơn/món/giá trị | Integration + k6 | Kế hoạch |

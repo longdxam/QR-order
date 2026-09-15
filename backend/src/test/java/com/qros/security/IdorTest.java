@@ -40,10 +40,16 @@ class IdorTest extends QrosIntegrationTest {
     @Autowired
     private JwtIssuer guestJwtIssuer;
 
+    @Autowired
+    private JwtIssuer staffJwtIssuer;
+
     private final HttpClient client = HttpClient.newHttpClient();
     private UUID storeId;
+    private UUID storeKhacId;
     private UUID orderCuaBanA;
     private String tokenBanB;
+    private UUID baristaId;
+    private String tokenBaristaChiNhanhA;
 
     @BeforeEach
     void chuanBi() {
@@ -61,10 +67,28 @@ class IdorTest extends QrosIntegrationTest {
         themDon(tableB, sessionB, "IDOR-B");
         tokenBanB = guestJwtIssuer.issue(sessionB.toString(), Duration.ofMinutes(90), Map.of(
                 "scope", "table_session", "sid", storeId.toString(), "tid", tableB.toString(), "tv", 0));
+
+        storeKhacId = UuidV7.generate();
+        jdbc.update("""
+                INSERT INTO store (id, code, name, timezone, opens_at, closes_at, active)
+                VALUES (?, ?, 'Chi nhánh khác', 'UTC', '00:00:00', '23:59:59', true)""",
+                storeKhacId, "IDOR-OTHER-" + storeKhacId);
+        baristaId = UuidV7.generate();
+        jdbc.update("INSERT INTO app_user (id, email, display_name, active) VALUES (?,?,?,true)",
+                baristaId, baristaId + "@test.local", "Barista chi nhánh A");
+        jdbc.update("""
+                INSERT INTO user_role (id, user_id, role_id, store_id)
+                SELECT ?, ?, id, ? FROM role WHERE code = 'BARISTA'""",
+                UuidV7.generate(), baristaId, storeId);
+        tokenBaristaChiNhanhA = staffJwtIssuer.issue(baristaId.toString(), Duration.ofMinutes(90), Map.of(
+                "scope", "staff", "tv", 0, "stores", java.util.List.of(storeId.toString()),
+                "permissions", java.util.List.of("order:read:store"), "mfaBlocked", false));
     }
 
     @AfterEach
     void donDep() {
+        jdbc.update("DELETE FROM user_role WHERE user_id = ?", baristaId);
+        jdbc.update("DELETE FROM app_user WHERE id = ?", baristaId);
         jdbc.update("DELETE FROM order_status_log WHERE order_id IN (SELECT id FROM customer_order WHERE store_id = ?)",
                 storeId);
         jdbc.update("DELETE FROM order_line_option WHERE order_line_id IN (SELECT id FROM order_line WHERE order_id IN "
@@ -75,6 +99,7 @@ class IdorTest extends QrosIntegrationTest {
         jdbc.update("DELETE FROM table_session WHERE store_id = ?", storeId);
         jdbc.update("DELETE FROM restaurant_table WHERE store_id = ?", storeId);
         jdbc.update("DELETE FROM store WHERE id = ?", storeId);
+        jdbc.update("DELETE FROM store WHERE id = ?", storeKhacId);
     }
 
     @Test
@@ -95,6 +120,20 @@ class IdorTest extends QrosIntegrationTest {
         assertThat(response.body()).contains("\"code\":\"NOT_FOUND\"");
         assertThat(jdbc.queryForObject("SELECT status FROM customer_order WHERE id = ?", String.class, orderCuaBanA))
                 .isEqualTo("PENDING");
+    }
+
+    @Test
+    void baristaChiNhanhA_docHangChoChiNhanhB_tra404() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(
+                        "http://localhost:" + port + "/api/v1/staff/kds/queue"))
+                .header("Cookie", "qros_session=" + tokenBaristaChiNhanhA)
+                .header("X-Store-Id", storeKhacId.toString())
+                .GET().build();
+
+        HttpResponse<String> response = client.send(request, BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.body()).contains("\"code\":\"NOT_FOUND\"");
     }
 
     private UUID themBan(String label) {
