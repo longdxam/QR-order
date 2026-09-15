@@ -261,6 +261,21 @@ class TableSessionHttpFlowTest extends QrosIntegrationTest {
         assertThat(hienTai.body()).contains(sessionIdCuaBan().toString());
     }
 
+    @Test
+    void tokenPhienDungThietBiKhac_biTuChoiTruocController() throws Exception {
+        UUID deviceId = UuidV7.generate();
+        String token = accessTokenTu(quet(deviceId).body());
+
+        HttpResponse<String> response = client.send(HttpRequest.newBuilder(uri("/api/v1/guest/sessions/current"))
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Device-Id", UuidV7.generate().toString())
+                        .GET().build(),
+                BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(response.body()).contains("\"code\":\"UNAUTHENTICATED\"");
+    }
+
     // ─────────────────────────────────────────────────────────────────────
 
     private HttpResponse<String> quet(UUID deviceId) throws Exception {
